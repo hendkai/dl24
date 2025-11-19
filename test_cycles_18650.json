@@ -1,0 +1,187 @@
+{
+  "test_cycles": {
+    "basic_capacity": {
+      "name": "Basic Capacity Test",
+      "description": "Standard constant-current discharge for capacity verification",
+      "duration_estimate": "2-4 hours",
+      "phases": [
+        {
+          "name": "Initial Rest",
+          "type": "rest",
+          "duration": 60,
+          "description": "Let battery stabilize"
+        },
+        {
+          "name": "Constant Current Discharge",
+          "type": "discharge",
+          "current": 1.0,
+          "cutoff_voltage": 2.5,
+          "max_time": 14400,
+          "log_interval": 5,
+          "description": "1A discharge until 2.5V cutoff"
+        }
+      ],
+      "safety": {
+        "max_temp": 50,
+        "min_temp": 15,
+        "max_voltage": 4.2,
+        "min_voltage": 2.5
+      }
+    },
+    "advanced_stress": {
+      "name": "Advanced Stress Test",
+      "description": "Multi-phase dynamic load testing for high-drain applications",
+      "duration_estimate": "6-8 hours",
+      "phases": [
+        {
+          "name": "Initial Rest",
+          "type": "rest",
+          "duration": 60,
+          "description": "Battery stabilization"
+        },
+        {
+          "name": "Conditioning Phase",
+          "type": "discharge",
+          "current": 1.0,
+          "duration": 900,
+          "description": "15 min conditioning at 1A"
+        },
+        {
+          "name": "Ramp Up",
+          "type": "ramp",
+          "start_current": 1.0,
+          "end_current": 2.0,
+          "duration": 900,
+          "description": "Linear ramp 1A to 2A over 15 min"
+        },
+        {
+          "name": "Maximum Load Hold",
+          "type": "discharge",
+          "current": 2.0,
+          "duration": 900,
+          "description": "15 min at maximum 2A load"
+        },
+        {
+          "name": "Ramp Down",
+          "type": "ramp",
+          "start_current": 2.0,
+          "end_current": 1.0,
+          "duration": 900,
+          "description": "Linear ramp 2A to 1A over 15 min"
+        },
+        {
+          "name": "Final Discharge",
+          "type": "discharge",
+          "current": 1.0,
+          "cutoff_voltage": 2.5,
+          "max_time": 21600,
+          "description": "1A discharge to cutoff"
+        }
+      ],
+      "safety": {
+        "max_temp": 50,
+        "min_temp": 15,
+        "max_voltage": 4.2,
+        "min_voltage": 2.5
+      }
+    },
+    "slow_capacity": {
+      "name": "Slow Capacity Test (0.5A)",
+      "description": "Low-rate discharge for accurate capacity measurement",
+      "duration_estimate": "5-8 hours",
+      "phases": [
+        {
+          "name": "Initial Rest",
+          "type": "rest",
+          "duration": 120,
+          "description": "Extended stabilization period"
+        },
+        {
+          "name": "Low Rate Discharge",
+          "type": "discharge",
+          "current": 0.5,
+          "cutoff_voltage": 2.5,
+          "max_time": 28800,
+          "log_interval": 10,
+          "description": "0.5A discharge for accurate capacity"
+        }
+      ],
+      "safety": {
+        "max_temp": 45,
+        "min_temp": 15,
+        "max_voltage": 4.2,
+        "min_voltage": 2.5
+      }
+    },
+    "fast_screening": {
+      "name": "Fast Screening Test (2A)",
+      "description": "Quick high-rate discharge for cell screening",
+      "duration_estimate": "1-2 hours",
+      "phases": [
+        {
+          "name": "Initial Rest",
+          "type": "rest",
+          "duration": 30,
+          "description": "Brief stabilization"
+        },
+        {
+          "name": "High Rate Discharge",
+          "type": "discharge",
+          "current": 2.0,
+          "cutoff_voltage": 2.5,
+          "max_time": 7200,
+          "log_interval": 2,
+          "description": "2A discharge for quick screening"
+        }
+      ],
+      "safety": {
+        "max_temp": 55,
+        "min_temp": 15,
+        "max_voltage": 4.2,
+        "min_voltage": 2.5
+      }
+    },
+    "cycle_life": {
+      "name": "Cycle Life Test",
+      "description": "Repeated discharge cycles for degradation analysis",
+      "duration_estimate": "Variable (multiple cycles)",
+      "cycles": 10,
+      "phases": [
+        {
+          "name": "Rest Before Discharge",
+          "type": "rest",
+          "duration": 300,
+          "description": "5 min rest"
+        },
+        {
+          "name": "Discharge Cycle",
+          "type": "discharge",
+          "current": 1.0,
+          "cutoff_voltage": 2.5,
+          "max_time": 14400,
+          "log_interval": 5,
+          "description": "1A discharge cycle"
+        },
+        {
+          "name": "Rest After Discharge",
+          "type": "rest",
+          "duration": 600,
+          "description": "10 min rest before recharge (manual)"
+        }
+      ],
+      "safety": {
+        "max_temp": 50,
+        "min_temp": 15,
+        "max_voltage": 4.2,
+        "min_voltage": 2.5
+      },
+      "notes": "User must manually recharge battery between cycles"
+    }
+  },
+  "metadata": {
+    "version": "1.0",
+    "created": "2025-11-19",
+    "compatible_devices": ["DL24P", "DL24", "PX100"],
+    "notes": "Adapted from TestController 18650 test procedures. All currents in Amperes, voltages in Volts, time in seconds, temperature in Celsius."
+  }
+}
