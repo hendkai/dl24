@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/color_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/txtDeviceName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="20sp"
+                    android:textColor="@color/color_text"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/txtStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:textColor="@color/color_success"/>
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDisconnect"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Disconnect"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+        </LinearLayout>
+
+        <!-- Status Display -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardBackgroundColor="@color/color_surface"
+            app:cardCornerRadius="12dp">
+
+            <GridLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="2"
+                android:padding="16dp">
+
+                <!-- Voltage -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Voltage" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtVoltage" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0.00 V" android:textColor="@color/color_text" android:textSize="24sp" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- Current -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Current" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtCurrent" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0.000 A" android:textColor="@color/color_text" android:textSize="24sp" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- Power -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Power" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtPower" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0.00 W" android:textColor="@color/color_text" android:textSize="24sp" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- Temperature -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Temperature" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtTemperature" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0°C" android:textColor="@color/color_text" android:textSize="24sp" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- Capacity -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Capacity" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtCapacity" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0.000 Ah" android:textColor="@color/color_text" android:textSize="18sp" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- Energy -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Energy" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtEnergy" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0.00 Wh" android:textColor="@color/color_text" android:textSize="18sp" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- Time -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Time" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtTime" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="00:00:00" android:textColor="@color/color_text" android:textSize="18sp" android:textStyle="bold"/>
+                </LinearLayout>
+
+                <!-- Load State -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Load" android:textColor="@color/color_text_dim" android:textSize="12sp"/>
+                    <TextView android:id="@+id/txtLoadState" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="OFF" android:textColor="@color/color_accent" android:textSize="18sp" android:textStyle="bold"/>
+                </LinearLayout>
+            </GridLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- Control Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOn"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="ON"
+                android:enabled="false"
+                app:backgroundTint="@color/color_success"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOff"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:text="OFF"
+                android:enabled="false"
+                app:backgroundTint="@color/color_accent"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnReset"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="Reset"
+                android:enabled="false"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+        </LinearLayout>
+
+        <!-- Current Slider -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Set Current"
+            android:textColor="@color/color_text"
+            android:textSize="16sp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <SeekBar
+                android:id="@+id/seekCurrent"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"/>
+
+            <TextView
+                android:id="@+id/txtCurrentValue"
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                android:text="1.0 A"
+                android:textColor="@color/color_text"
+                android:textAlignment="textEnd"/>
+        </LinearLayout>
+
+        <!-- Cutoff Slider -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Cutoff Voltage"
+            android:textColor="@color/color_text"
+            android:textSize="16sp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <SeekBar
+                android:id="@+id/seekCutoff"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"/>
+
+            <TextView
+                android:id="@+id/txtCutoffValue"
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                android:text="2.8 V"
+                android:textColor="@color/color_text"
+                android:textAlignment="textEnd"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

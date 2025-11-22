@@ -1,0 +1,2 @@
+rootProject.name = "DL24 Controller"
+include ':app'

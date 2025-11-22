@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DL24 Website Color Scheme -->
+    <color name="color_bg">#1a1a2e</color>
+    <color name="color_surface">#16213e</color>
+    <color name="color_primary">#0f3460</color>
+    <color name="color_accent">#e94560</color>
+    <color name="color_success">#00d9ff</color>
+    <color name="color_text">#eaeaea</color>
+    <color name="color_text_dim">#a0a0a0</color>
+    <color name="color_warning">#ffd700</color>
+
+    <!-- Material Design mappings -->
+    <color name="primaryColor">#0f3460</color>
+    <color name="primaryLightColor">#16213e</color>
+    <color name="primaryDarkColor">#1a1a2e</color>
+    <color name="secondaryColor">#00d9ff</color>
+    <color name="secondaryLightColor">#00b8d4</color>
+    <color name="secondaryDarkColor">#0097a7</color>
+</resources>
