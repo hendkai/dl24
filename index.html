@@ -498,25 +498,45 @@
                     <div id="cycleDescription" style="margin: 10px 0; color: var(--color-text-dim);"></div>
                     <div id="cyclePhases"></div>
                     <button class="btn btn-primary" onclick="toggleCycleEditor()" style="margin-top: 10px; padding: 8px 16px; font-size: 0.9rem;">✏️ Edit Cycle</button>
+                    <button id="deleteCycleBtn" class="btn btn-danger" onclick="deleteSelectedCycle()" style="margin-top: 10px; padding: 8px 16px; font-size: 0.9rem; display: none;">🗑️ Delete</button>
                 </div>
 
                 <div id="cycleEditor" style="display: none; margin-top: 15px; padding: 15px; background: var(--color-primary); border-radius: 8px;">
-                    <h3 style="margin-bottom: 15px; color: var(--color-success);">Cycle Editor</h3>
+                    <h3 style="margin-bottom: 15px; color: var(--color-success);">🔧 Cycle Builder</h3>
 
                     <div class="form-group">
                         <label>Cycle Name</label>
-                        <input type="text" id="customCycleName" placeholder="My Custom Test">
+                        <input type="text" id="customCycleName" placeholder="My Test Cycle" style="width: 100%;">
                     </div>
 
-                    <div class="form-group">
-                        <label>Number of Phases</label>
-                        <input type="number" id="numPhases" value="1" min="1" max="5" onchange="updatePhaseEditor()">
+                    <div style="margin-bottom: 10px;">
+                        <label style="display: block; margin-bottom: 8px;">Phases:</label>
+                        <div id="phaseList" style="max-height: 300px; overflow-y: auto;"></div>
                     </div>
 
-                    <div id="phaseEditor"></div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 15px;">
+                        <button class="btn btn-primary" onclick="addPhase('discharge')" style="padding: 6px 12px; font-size: 0.85rem;">
+                            ➕ Discharge
+                        </button>
+                        <button class="btn btn-primary" onclick="addPhase('rest')" style="padding: 6px 12px; font-size: 0.85rem;">
+                            ➕ Rest
+                        </button>
+                        <button class="btn btn-primary" onclick="addPhase('ramp')" style="padding: 6px 12px; font-size: 0.85rem;">
+                            ➕ Ramp
+                        </button>
+                    </div>
+
+                    <div style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px; margin-bottom: 15px; font-size: 0.85rem;">
+                        <strong>Quick Templates:</strong>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+                            <button onclick="loadTemplate('simple')" style="padding: 4px 8px; background: var(--color-success); border: none; border-radius: 4px; color: var(--color-bg); cursor: pointer; font-size: 0.8rem;">Simple</button>
+                            <button onclick="loadTemplate('with_rest')" style="padding: 4px 8px; background: var(--color-success); border: none; border-radius: 4px; color: var(--color-bg); cursor: pointer; font-size: 0.8rem;">With Rest</button>
+                            <button onclick="loadTemplate('stress')" style="padding: 4px 8px; background: var(--color-success); border: none; border-radius: 4px; color: var(--color-bg); cursor: pointer; font-size: 0.8rem;">Stress Test</button>
+                        </div>
+                    </div>
 
                     <div class="btn-group" style="margin-top: 15px;">
-                        <button class="btn btn-primary" onclick="applyCustomCycle()">✔️ Apply Cycle</button>
+                        <button class="btn btn-primary" onclick="applyCustomCycle()">✔️ Save & Apply</button>
                         <button class="btn btn-danger" onclick="cancelCycleEdit()">✖️ Cancel</button>
                     </div>
                 </div>
@@ -935,6 +955,13 @@
 
             if (cycleId === 'custom' && customCycle) {
                 cycle = customCycle;
+            } else if (cycleId.startsWith('saved_')) {
+                // Load saved custom cycle
+                const savedCycle = savedCustomCycles.find(c => c.id === cycleId);
+                if (savedCycle) {
+                    cycle = savedCycle;
+                    customCycle = savedCycle; // Also set as current custom cycle
+                }
             }
 
             if (cycle) {
@@ -973,10 +1000,16 @@
                 }
 
                 // Show edit button for custom
-                if (cycleId === 'custom' || cycle.phases.length > 1) {
+                if (cycleId === 'custom' || cycleId.startsWith('saved_') || cycle.phases.length > 1) {
                     document.getElementById('cycleDetails').style.display = 'block';
                 } else {
                     document.getElementById('cycleDetails').style.display = 'none';
+                }
+
+                // Show delete button only for saved cycles
+                const deleteBtn = document.getElementById('deleteCycleBtn');
+                if (deleteBtn) {
+                    deleteBtn.style.display = cycleId.startsWith('saved_') ? 'inline-block' : 'none';
                 }
             }
         }
@@ -1013,199 +1046,248 @@
             phasesDiv.innerHTML = phasesHTML;
         }
 
+        // Cycle Builder state
+        let customPhases = [];
+
         function toggleCycleEditor() {
             const editor = document.getElementById('cycleEditor');
             const isHidden = editor.style.display === 'none';
 
             if (isHidden) {
                 // Load current cycle into editor
-                if (currentCycle) {
+                if (currentCycle && currentCycle.phases) {
                     document.getElementById('customCycleName').value = currentCycle.name;
-                    document.getElementById('numPhases').value = currentCycle.phases.length;
-                    updatePhaseEditor();
-
-                    // Populate phase data
-                    currentCycle.phases.forEach((phase, index) => {
-                        populatePhaseFields(index, phase);
-                    });
+                    customPhases = JSON.parse(JSON.stringify(currentCycle.phases)); // Deep copy
+                } else {
+                    customPhases = [];
                 }
+                renderPhaseList();
                 editor.style.display = 'block';
             } else {
                 editor.style.display = 'none';
             }
         }
 
-        function updatePhaseEditor() {
-            const numPhases = parseInt(document.getElementById('numPhases').value);
-            const editorDiv = document.getElementById('phaseEditor');
-
-            let html = '';
-            for (let i = 0; i < numPhases; i++) {
-                html += `
-                    <div class="phase-item" style="margin: 15px 0;">
-                        <div class="phase-header">Phase ${i + 1}</div>
-                        <div class="form-group">
-                            <label>Phase Name</label>
-                            <input type="text" id="phase${i}_name" value="Phase ${i + 1}">
-                        </div>
-                        <div class="form-group">
-                            <label>Type</label>
-                            <select id="phase${i}_type" onchange="updatePhaseFields(${i})">
-                                <option value="rest">Rest (no load)</option>
-                                <option value="discharge" selected>Discharge</option>
-                                <option value="ramp">Current Ramp</option>
-                            </select>
-                        </div>
-                        <div id="phase${i}_fields">
-                            <div class="form-group">
-                                <label>Current (A)</label>
-                                <input type="number" id="phase${i}_current" value="1.0" step="0.1" min="0.1" max="20">
-                            </div>
-                            <div class="form-group">
-                                <label>Cutoff Voltage (V)</label>
-                                <input type="number" id="phase${i}_cutoff" value="2.5" step="0.1" min="2.0" max="4.2">
-                            </div>
-                            <div class="form-group">
-                                <label>Max Duration (minutes, 0=until cutoff)</label>
-                                <input type="number" id="phase${i}_duration" value="0" min="0" max="480">
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            editorDiv.innerHTML = html;
-        }
-
-        function updatePhaseFields(phaseIndex) {
-            const type = document.getElementById(`phase${phaseIndex}_type`).value;
-            const fieldsDiv = document.getElementById(`phase${phaseIndex}_fields`);
-
-            let html = '';
-            if (type === 'rest') {
-                html = `
-                    <div class="form-group">
-                        <label>Rest Duration (seconds)</label>
-                        <input type="number" id="phase${phaseIndex}_duration" value="60" min="1" max="3600">
-                    </div>
-                `;
-            } else if (type === 'discharge') {
-                html = `
-                    <div class="form-group">
-                        <label>Current (A)</label>
-                        <input type="number" id="phase${phaseIndex}_current" value="1.0" step="0.1" min="0.1" max="20">
-                    </div>
-                    <div class="form-group">
-                        <label>Cutoff Voltage (V, optional)</label>
-                        <input type="number" id="phase${phaseIndex}_cutoff" value="2.5" step="0.1" min="2.0" max="4.2">
-                    </div>
-                    <div class="form-group">
-                        <label>Duration (minutes, 0=until cutoff)</label>
-                        <input type="number" id="phase${phaseIndex}_duration" value="0" min="0" max="480">
-                    </div>
-                `;
+        function addPhase(type) {
+            let newPhase;
+            if (type === 'discharge') {
+                newPhase = {
+                    name: `Discharge ${customPhases.length + 1}`,
+                    type: 'discharge',
+                    current: 1.0,
+                    cutoff: 2.5,
+                    maxTime: 0
+                };
+            } else if (type === 'rest') {
+                newPhase = {
+                    name: `Rest ${customPhases.length + 1}`,
+                    type: 'rest',
+                    duration: 60
+                };
             } else if (type === 'ramp') {
-                html = `
-                    <div class="form-group">
-                        <label>Start Current (A)</label>
-                        <input type="number" id="phase${phaseIndex}_startCurrent" value="1.0" step="0.1" min="0.1" max="20">
-                    </div>
-                    <div class="form-group">
-                        <label>End Current (A)</label>
-                        <input type="number" id="phase${phaseIndex}_endCurrent" value="2.0" step="0.1" min="0.1" max="20">
-                    </div>
-                    <div class="form-group">
-                        <label>Ramp Duration (minutes)</label>
-                        <input type="number" id="phase${phaseIndex}_duration" value="15" min="1" max="60">
-                    </div>
-                `;
+                newPhase = {
+                    name: `Ramp ${customPhases.length + 1}`,
+                    type: 'ramp',
+                    startCurrent: 1.0,
+                    endCurrent: 2.0,
+                    duration: 900
+                };
             }
-
-            fieldsDiv.innerHTML = html;
+            customPhases.push(newPhase);
+            renderPhaseList();
         }
 
-        function populatePhaseFields(phaseIndex, phase) {
-            const nameField = document.getElementById(`phase${phaseIndex}_name`);
-            const typeField = document.getElementById(`phase${phaseIndex}_type`);
+        function removePhase(index) {
+            customPhases.splice(index, 1);
+            renderPhaseList();
+        }
 
-            if (nameField) nameField.value = phase.name;
-            if (typeField) {
-                typeField.value = phase.type;
-                updatePhaseFields(phaseIndex);
-
-                // Populate specific fields
-                setTimeout(() => {
-                    if (phase.type === 'rest') {
-                        const durationField = document.getElementById(`phase${phaseIndex}_duration`);
-                        if (durationField) durationField.value = phase.duration || 60;
-                    } else if (phase.type === 'discharge') {
-                        const currentField = document.getElementById(`phase${phaseIndex}_current`);
-                        const cutoffField = document.getElementById(`phase${phaseIndex}_cutoff`);
-                        const durationField = document.getElementById(`phase${phaseIndex}_duration`);
-
-                        if (currentField) currentField.value = phase.current || 1.0;
-                        if (cutoffField) cutoffField.value = phase.cutoff || 2.5;
-                        if (durationField) durationField.value = Math.floor((phase.duration || phase.maxTime || 0) / 60);
-                    } else if (phase.type === 'ramp') {
-                        const startField = document.getElementById(`phase${phaseIndex}_startCurrent`);
-                        const endField = document.getElementById(`phase${phaseIndex}_endCurrent`);
-                        const durationField = document.getElementById(`phase${phaseIndex}_duration`);
-
-                        if (startField) startField.value = phase.startCurrent || 1.0;
-                        if (endField) endField.value = phase.endCurrent || 2.0;
-                        if (durationField) durationField.value = Math.floor((phase.duration || 0) / 60);
-                    }
-                }, 100);
+        function movePhaseUp(index) {
+            if (index > 0) {
+                [customPhases[index - 1], customPhases[index]] = [customPhases[index], customPhases[index - 1]];
+                renderPhaseList();
             }
         }
 
-        function applyCustomCycle() {
-            const numPhases = parseInt(document.getElementById('numPhases').value);
-            const cycleName = document.getElementById('customCycleName').value || 'Custom Cycle';
+        function movePhaseDown(index) {
+            if (index < customPhases.length - 1) {
+                [customPhases[index], customPhases[index + 1]] = [customPhases[index + 1], customPhases[index]];
+                renderPhaseList();
+            }
+        }
 
-            const phases = [];
-            for (let i = 0; i < numPhases; i++) {
-                const name = document.getElementById(`phase${i}_name`).value;
-                const type = document.getElementById(`phase${i}_type`).value;
+        function updatePhaseValue(index, field, value) {
+            if (field === 'duration' || field === 'maxTime') {
+                customPhases[index][field] = parseFloat(value) * 60; // Convert minutes to seconds
+            } else if (field === 'current' || field === 'cutoff' || field === 'startCurrent' || field === 'endCurrent') {
+                customPhases[index][field] = parseFloat(value);
+            } else {
+                customPhases[index][field] = value;
+            }
+        }
 
-                const phase = { name, type };
+        function renderPhaseList() {
+            const listDiv = document.getElementById('phaseList');
 
-                if (type === 'rest') {
-                    phase.duration = parseInt(document.getElementById(`phase${i}_duration`).value);
-                } else if (type === 'discharge') {
-                    phase.current = parseFloat(document.getElementById(`phase${i}_current`).value);
-                    const cutoff = parseFloat(document.getElementById(`phase${i}_cutoff`).value);
-                    const duration = parseInt(document.getElementById(`phase${i}_duration`).value);
+            if (customPhases.length === 0) {
+                listDiv.innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">No phases defined. Add a phase above.</div>';
+                return;
+            }
 
-                    if (cutoff) phase.cutoff = cutoff;
-                    if (duration > 0) {
-                        phase.maxTime = duration * 60;
-                    } else {
-                        phase.maxTime = 0;
-                    }
-                } else if (type === 'ramp') {
-                    phase.startCurrent = parseFloat(document.getElementById(`phase${i}_startCurrent`).value);
-                    phase.endCurrent = parseFloat(document.getElementById(`phase${i}_endCurrent`).value);
-                    phase.duration = parseInt(document.getElementById(`phase${i}_duration`).value) * 60;
+            let html = '';
+            customPhases.forEach((phase, index) => {
+                html += `<div class="phase-item" style="margin: 8px 0; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px; border-left: 3px solid ${phase.type === 'discharge' ? 'var(--color-success)' : phase.type === 'rest' ? 'var(--color-accent)' : '#ff9800'};">`;
+
+                // Header with controls
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">`;
+                html += `<input type="text" value="${phase.name}" onchange="updatePhaseValue(${index}, 'name', this.value)" style="flex: 1; background: transparent; border: none; border-bottom: 1px solid var(--color-success); color: var(--color-text); font-weight: bold; padding: 2px;">`;
+                html += `<div style="display: flex; gap: 4px; margin-left: 8px;">`;
+                html += `<button onclick="movePhaseUp(${index})" style="padding: 2px 6px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text); cursor: pointer;" ${index === 0 ? 'disabled' : ''}>▲</button>`;
+                html += `<button onclick="movePhaseDown(${index})" style="padding: 2px 6px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text); cursor: pointer;" ${index === customPhases.length - 1 ? 'disabled' : ''}>▼</button>`;
+                html += `<button onclick="removePhase(${index})" style="padding: 2px 6px; background: var(--color-danger); border: none; border-radius: 3px; color: white; cursor: pointer;">✕</button>`;
+                html += `</div></div>`;
+
+                // Phase-specific fields
+                if (phase.type === 'discharge') {
+                    html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">`;
+                    html += `<div><label style="display: block; font-size: 0.75rem; color: #888;">Current (A)</label>`;
+                    html += `<input type="number" value="${phase.current}" step="0.1" min="0.1" max="20" onchange="updatePhaseValue(${index}, 'current', this.value)" style="width: 100%; padding: 4px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text);"></div>`;
+                    html += `<div><label style="display: block; font-size: 0.75rem; color: #888;">Cutoff (V)</label>`;
+                    html += `<input type="number" value="${phase.cutoff || 2.5}" step="0.1" min="2.0" max="4.2" onchange="updatePhaseValue(${index}, 'cutoff', this.value)" style="width: 100%; padding: 4px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text);"></div>`;
+                    html += `<div style="grid-column: span 2;"><label style="display: block; font-size: 0.75rem; color: #888;">Max Duration (min, 0=until cutoff)</label>`;
+                    html += `<input type="number" value="${(phase.maxTime || 0) / 60}" min="0" max="480" onchange="updatePhaseValue(${index}, 'maxTime', this.value)" style="width: 100%; padding: 4px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text);"></div>`;
+                    html += `</div>`;
+                } else if (phase.type === 'rest') {
+                    html += `<div style="font-size: 0.85rem;">`;
+                    html += `<label style="display: block; font-size: 0.75rem; color: #888;">Rest Duration (sec)</label>`;
+                    html += `<input type="number" value="${phase.duration}" min="1" max="3600" onchange="customPhases[${index}].duration = parseInt(this.value)" style="width: 100%; padding: 4px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text);">`;
+                    html += `</div>`;
+                } else if (phase.type === 'ramp') {
+                    html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">`;
+                    html += `<div><label style="display: block; font-size: 0.75rem; color: #888;">Start (A)</label>`;
+                    html += `<input type="number" value="${phase.startCurrent}" step="0.1" min="0.1" max="20" onchange="updatePhaseValue(${index}, 'startCurrent', this.value)" style="width: 100%; padding: 4px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text);"></div>`;
+                    html += `<div><label style="display: block; font-size: 0.75rem; color: #888;">End (A)</label>`;
+                    html += `<input type="number" value="${phase.endCurrent}" step="0.1" min="0.1" max="20" onchange="updatePhaseValue(${index}, 'endCurrent', this.value)" style="width: 100%; padding: 4px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text);"></div>`;
+                    html += `<div style="grid-column: span 2;"><label style="display: block; font-size: 0.75rem; color: #888;">Ramp Duration (min)</label>`;
+                    html += `<input type="number" value="${(phase.duration || 900) / 60}" min="1" max="60" onchange="updatePhaseValue(${index}, 'duration', this.value)" style="width: 100%; padding: 4px; background: var(--color-primary); border: 1px solid #555; border-radius: 3px; color: var(--color-text);"></div>`;
+                    html += `</div>`;
                 }
 
-                phases.push(phase);
+                html += `</div>`;
+            });
+
+            listDiv.innerHTML = html;
+        }
+
+        function loadTemplate(template) {
+            if (template === 'simple') {
+                customPhases = [{
+                    name: 'Standard Discharge',
+                    type: 'discharge',
+                    current: 1.0,
+                    cutoff: 2.5,
+                    maxTime: 0
+                }];
+            } else if (template === 'with_rest') {
+                customPhases = [
+                    { name: 'Discharge 1', type: 'discharge', current: 1.0, cutoff: 3.0, maxTime: 0 },
+                    { name: 'Rest', type: 'rest', duration: 60 },
+                    { name: 'Discharge 2', type: 'discharge', current: 0.5, cutoff: 2.5, maxTime: 0 }
+                ];
+            } else if (template === 'stress') {
+                customPhases = [
+                    { name: 'High Load', type: 'discharge', current: 2.0, cutoff: 3.5, maxTime: 300 },
+                    { name: 'Rest', type: 'rest', duration: 30 },
+                    { name: 'Low Load', type: 'discharge', current: 0.5, cutoff: 3.0, maxTime: 300 },
+                    { name: 'Ramp', type: 'ramp', startCurrent: 0.5, endCurrent: 2.0, duration: 600 },
+                    { name: 'Final Discharge', type: 'discharge', current: 1.0, cutoff: 2.5, maxTime: 0 }
+                ];
+            }
+            renderPhaseList();
+        }
+
+        // Storage for saved custom cycles
+        let savedCustomCycles = JSON.parse(localStorage.getItem('savedCustomCycles') || '[]');
+
+        function applyCustomCycle() {
+            const cycleName = document.getElementById('customCycleName').value || 'Custom Cycle';
+
+            if (customPhases.length === 0) {
+                log('⚠️ No phases defined!', 'warning');
+                return;
             }
 
             customCycle = {
                 name: cycleName,
-                description: `Custom ${numPhases}-phase test cycle`,
-                phases: phases
+                description: `Custom ${customPhases.length}-phase test cycle`,
+                phases: JSON.parse(JSON.stringify(customPhases)) // Deep copy
             };
 
-            // Select custom cycle
-            document.getElementById('testCycle').value = 'custom';
+            // Save to localStorage and add to dropdown
+            const cycleId = 'saved_' + Date.now();
+            const savedCycle = { id: cycleId, ...customCycle };
+
+            // Check if cycle with same name exists, replace it
+            const existingIndex = savedCustomCycles.findIndex(c => c.name === cycleName);
+            if (existingIndex >= 0) {
+                savedCustomCycles[existingIndex] = savedCycle;
+            } else {
+                savedCustomCycles.push(savedCycle);
+            }
+            localStorage.setItem('savedCustomCycles', JSON.stringify(savedCustomCycles));
+
+            // Update dropdown
+            updateCycleDropdown();
+
+            // Select the new cycle
+            document.getElementById('testCycle').value = cycleId;
             loadTestCycle();
 
             // Hide editor
             document.getElementById('cycleEditor').style.display = 'none';
 
-            log(`Custom cycle created: ${cycleName} with ${numPhases} phases`, 'info');
+            log(`Custom cycle saved: ${cycleName} with ${customPhases.length} phases`, 'info');
+        }
+
+        function updateCycleDropdown() {
+            const select = document.getElementById('testCycle');
+
+            // Remove old saved cycles from dropdown
+            const toRemove = [];
+            for (let i = 0; i < select.options.length; i++) {
+                if (select.options[i].value.startsWith('saved_')) {
+                    toRemove.push(select.options[i]);
+                }
+            }
+            toRemove.forEach(opt => opt.remove());
+
+            // Add saved cycles
+            savedCustomCycles.forEach(cycle => {
+                const option = document.createElement('option');
+                option.value = cycle.id;
+                option.textContent = `📁 ${cycle.name}`;
+                select.appendChild(option);
+            });
+        }
+
+        function deleteSavedCycle(cycleId) {
+            savedCustomCycles = savedCustomCycles.filter(c => c.id !== cycleId);
+            localStorage.setItem('savedCustomCycles', JSON.stringify(savedCustomCycles));
+            updateCycleDropdown();
+            log('Custom cycle deleted', 'info');
+        }
+
+        function deleteSelectedCycle() {
+            const cycleId = document.getElementById('testCycle').value;
+            if (cycleId.startsWith('saved_')) {
+                const cycle = savedCustomCycles.find(c => c.id === cycleId);
+                if (cycle && confirm(`Delete cycle "${cycle.name}"?`)) {
+                    deleteSavedCycle(cycleId);
+                    // Select first cycle
+                    document.getElementById('testCycle').value = 'simple';
+                    loadTestCycle();
+                }
+            }
         }
 
         function cancelCycleEdit() {
@@ -2160,6 +2242,9 @@
             // Start system time clock
             updateSystemTime();
             setInterval(updateSystemTime, 1000);
+
+            // Load saved custom cycles from localStorage
+            updateCycleDropdown();
 
             if (SIMULATION_MODE) {
                 log('⚠️ SIMULATION MODE active', 'warning');
