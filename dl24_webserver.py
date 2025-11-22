@@ -6,6 +6,7 @@ Bridges the index.html frontend with dl24.py backend
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 import threading
 import time
 import sys
@@ -22,6 +23,10 @@ except ImportError:
 
 app = Flask(__name__, static_folder='.')
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Thread lock for serial port access
+serial_lock = threading.Lock()
 
 # Global state
 test_state = {
@@ -49,18 +54,24 @@ connection_health = {
     'connection_reset_count': 0,
     'last_reset_time': 0,
     'min_reset_interval': 30,  # Seconds between connection resets
-    'update_interval': 3.0,  # Start with 3 seconds, increase if problems persist
-    'max_update_interval': 10.0  # Maximum update interval
+    'update_interval': 2.0,  # Start with 2 seconds, increase if problems persist
+    'max_update_interval': 10.0,  # Maximum update interval
+    'is_connected': False,
+    'last_error': None,
+    'reconnect_attempts': 0
 }
 update_thread = None
 test_thread = None
+last_heartbeat = 0
+HEARTBEAT_TIMEOUT = 15  # Seconds without heartbeat before auto-stop
 
 def init_device():
     """Initialize the DL24P device connection"""
-    global pload, test_state
+    global pload, test_state, connection_health
     try:
-        pload = PowerLoad()
-        pload.verbrun = True  # Enable verbose output for debugging
+        if pload is None:
+            pload = PowerLoad()
+            pload.verbrun = True  # Enable verbose output for debugging
 
         # Read config file - use dl24.cfg instead of dl24_webserver.cfg
         if not pload.readconf(name='dl24'):
@@ -68,9 +79,18 @@ def init_device():
 
         print(f'Config loaded: {pload.conf}', file=sys.stderr)
 
+        # Check if we have connection settings
+        if not pload.conf.get('serport') and not pload.conf.get('host'):
+            print('No serial port or host configured', file=sys.stderr)
+            return False
+
         # Initialize port
         pload.initport()
         pload.instr.connect()
+
+        connection_health['is_connected'] = True
+        connection_health['last_error'] = None
+        connection_health['consecutive_failures'] = 0
 
         # Wait for initial data if needed
         if 'waitcomm' in pload.conf and pload.conf['waitcomm'] == '1':
@@ -111,6 +131,47 @@ def init_device():
         print(f'Error initializing device: {e}', file=sys.stderr)
         import traceback
         traceback.print_exc()
+        connection_health['is_connected'] = False
+        connection_health['last_error'] = str(e)
+        return False
+
+def reconnect_device():
+    """Attempt to reconnect to the device"""
+    global pload, connection_health
+
+    connection_health['reconnect_attempts'] += 1
+    print(f'🔄 Reconnect attempt #{connection_health["reconnect_attempts"]}', file=sys.stderr)
+
+    try:
+        # Close existing connection if any
+        if pload and pload.instr and hasattr(pload.instr, 'comm') and pload.instr.comm:
+            try:
+                pload.instr.close()
+            except:
+                pass
+
+        # Check if serial port still exists
+        if pload and 'serport' in pload.conf:
+            import os
+            port_path = pload.conf['serport']
+            if not os.path.exists(port_path):
+                connection_health['is_connected'] = False
+                connection_health['last_error'] = f'Serial port {port_path} not found'
+                print(f'❌ Serial port {port_path} not found', file=sys.stderr)
+                return False
+
+        # Reinitialize
+        if init_device():
+            print(f'✅ Reconnection successful', file=sys.stderr)
+            connection_health['reconnect_attempts'] = 0
+            return True
+        else:
+            return False
+
+    except Exception as e:
+        connection_health['is_connected'] = False
+        connection_health['last_error'] = str(e)
+        print(f'❌ Reconnection failed: {e}', file=sys.stderr)
         return False
 
 def manage_connection_health(success):
@@ -122,6 +183,8 @@ def manage_connection_health(success):
     if success:
         connection_health['last_successful_query'] = current_time
         connection_health['consecutive_failures'] = 0
+        connection_health['is_connected'] = True
+        connection_health['last_error'] = None
         # Reduce update interval gradually on success
         if connection_health['update_interval'] > 3.0:
             connection_health['update_interval'] = max(3.0, connection_health['update_interval'] - 0.5)
@@ -135,25 +198,23 @@ def manage_connection_health(success):
             connection_health['update_interval'] + 0.5
         )
 
+        # Mark as disconnected after multiple failures
+        if connection_health['consecutive_failures'] >= 3:
+            connection_health['is_connected'] = False
+
         # Attempt connection reset if too many failures
         if (connection_health['consecutive_failures'] >= connection_health['max_consecutive_failures'] and
             current_time - connection_health['last_reset_time'] > connection_health['min_reset_interval']):
 
-            print(f'🔄 Attempting connection reset after {connection_health["consecutive_failures"]} failures', file=sys.stderr)
-            try:
-                if pload and pload.instr and hasattr(pload.instr, 'comm') and pload.instr.comm:
-                    # Force close and reopen the connection
-                    pload.instr.comm.close()
-                    time.sleep(1)
-                    pload.instr.comm.open()
-                    connection_health['connection_reset_count'] += 1
-                    connection_health['last_reset_time'] = current_time
-                    connection_health['consecutive_failures'] = 0
-                    print(f'✅ Connection reset successful (reset #{connection_health["connection_reset_count"]})', file=sys.stderr)
-                else:
-                    print(f'❌ Cannot reset connection - device not available', file=sys.stderr)
-            except Exception as e:
-                print(f'❌ Connection reset failed: {e}', file=sys.stderr)
+            print(f'🔄 Attempting automatic reconnection after {connection_health["consecutive_failures"]} failures', file=sys.stderr)
+            connection_health['last_reset_time'] = current_time
+
+            # Use reconnect_device for proper reconnection
+            if reconnect_device():
+                connection_health['connection_reset_count'] += 1
+                print(f'✅ Auto-reconnection successful (reset #{connection_health["connection_reset_count"]})', file=sys.stderr)
+            else:
+                print(f'❌ Auto-reconnection failed', file=sys.stderr)
 
 def update_data():
     """Background thread to continuously update device data"""
@@ -164,14 +225,15 @@ def update_data():
     while True:
         if pload and pload.instr and pload.instr.comm:
             try:
-                # Update data from device
-                pload.instr.recvdata()
+                with serial_lock:
+                    # Update data from device
+                    pload.instr.recvdata()
 
-                # Get complete device state
-                device_state = pload.instr.cmd_readstate(energy=True, limits=True, temp=True, short=False)
-                load_on = device_state.get('out', 0)
+                    # Get complete device state
+                    device_state = pload.instr.cmd_readstate(energy=True, limits=True, temp=True, short=False)
+                    load_on = device_state.get('out', 0)
 
-                # Log state changes (every 30 seconds to avoid spam)
+                    # Log state changes (every 30 seconds to avoid spam)
                 current_time = time.time()
                 if current_time - last_log_time > 30:
                     if (device_state != last_device_state or
@@ -179,13 +241,13 @@ def update_data():
 
                         print(f'=== DEVICE STATUS UPDATE ===', file=sys.stderr)
                         print(f'Load status: {load_on} ({"ON" if load_on else "OFF"})', file=sys.stderr)
-                        print(f'Output voltage: {device_state.get("V", 0):.3f}V', file=sys.stderr)
-                        print(f'Output current: {device_state.get("A", 0):.3f}A', file=sys.stderr)
-                        print(f'Set current: {device_state.get("Iset", 0):.3f}A', file=sys.stderr)
-                        print(f'Capacity: {device_state.get("Ah", 0):.3f}Ah', file=sys.stderr)
-                        print(f'Energy: {device_state.get("Wh", 0):.3f}Wh', file=sys.stderr)
-                        print(f'Temperature: {device_state.get("temp", 0):.1f}°C', file=sys.stderr)
-                        print(f'Cutoff voltage: {device_state.get("Vcut", 0):.3f}V', file=sys.stderr)
+                        print(f'Output voltage: {device_state.get("V", 0) or 0:.3f}V', file=sys.stderr)
+                        print(f'Output current: {device_state.get("A", 0) or 0:.3f}A', file=sys.stderr)
+                        print(f'Set current: {device_state.get("Iset", 0) or 0:.3f}A', file=sys.stderr)
+                        print(f'Capacity: {device_state.get("Ah", 0) or 0:.3f}Ah', file=sys.stderr)
+                        print(f'Energy: {device_state.get("Wh", 0) or 0:.3f}Wh', file=sys.stderr)
+                        print(f'Temperature: {device_state.get("temp", 0) or 0:.1f}°C', file=sys.stderr)
+                        print(f'Cutoff voltage: {device_state.get("Vcut", 0) or 0:.3f}V', file=sys.stderr)
                         print(f'Test running: {test_state["running"]}', file=sys.stderr)
 
                         last_device_state = device_state.copy()
@@ -217,30 +279,33 @@ def update_data():
                             print(f'❌ Communication reset failed: {reset_error}', file=sys.stderr)
 
                 # Synchronize test state with device state
-                # If device shows load ON but we think test is not running, update our state
-                if load_on == 1 and not test_state['running']:
-                    print(f'🔄 STATE SYNC: Device load turned ON - auto-detecting as running test', file=sys.stderr)
-                    print(f'   Load: ON, Current: {test_state["current_data"].get("current", 0):.3f}A', file=sys.stderr)
-                    test_state['running'] = True
-                    if not test_state['start_time']:
-                        test_state['start_time'] = time.time()
-                        test_state['data_points'] = []  # Reset for new session
-                        print(f'   Started new test session at {time.strftime("%H:%M:%S")}', file=sys.stderr)
-                # If device shows load OFF but we think test is running, update our state
-                elif load_on == 0 and test_state['running']:
-                    print(f'🔄 STATE SYNC: Device load turned OFF - auto-stopping test tracking', file=sys.stderr)
-                    final_runtime = test_state['current_data'].get('runtime', 0)
-                    final_capacity = test_state['current_data'].get('capacity', 0)
-                    print(f'   Test ended after {final_runtime:.1f}s, {final_capacity:.0f}mAh', file=sys.stderr)
-                    test_state['running'] = False
-                    test_state['start_time'] = None
+                # Only sync if we have valid data (no comm errors)
+                if not has_comm_errors:
+                    # If device shows load ON but we think test is not running, update our state
+                    if load_on == 1 and not test_state['running']:
+                        print(f'🔄 STATE SYNC: Device load turned ON - auto-detecting as running test', file=sys.stderr)
+                        print(f'   Load: ON, Current: {test_state["current_data"].get("current", 0):.3f}A', file=sys.stderr)
+                        test_state['running'] = True
+                        if not test_state['start_time']:
+                            test_state['start_time'] = time.time()
+                            test_state['data_points'] = []  # Reset for new session
+                            print(f'   Started new test session at {time.strftime("%H:%M:%S")}', file=sys.stderr)
+                    # If device shows load OFF but we think test is running, update our state
+                    elif load_on == 0 and test_state['running']:
+                        print(f'🔄 STATE SYNC: Device load turned OFF - auto-stopping test tracking', file=sys.stderr)
+                        final_runtime = test_state['current_data'].get('runtime', 0)
+                        final_capacity = test_state['current_data'].get('capacity', 0)
+                        print(f'   Test ended after {final_runtime:.1f}s, {final_capacity:.0f}mAh', file=sys.stderr)
+                        test_state['running'] = False
+                        test_state['start_time'] = None
 
-                # Get current values
-                voltage = pload.instr.cmd_getvolt()
-                current = pload.instr.cmd_getamp()
-                capacity = pload.instr.cmd_getah(div=1)  # Get in mAh
-                energy = pload.instr.cmd_getwh(div=1)    # Get in mWh
-                temp = pload.instr.cmd_gettemp()
+                # Use data from device_state (already fetched inside serial_lock)
+                # This avoids race conditions and duplicate serial queries
+                voltage = device_state.get('V', 0) or 0
+                current = device_state.get('A', 0) or 0
+                capacity = (device_state.get('Ah', 0) or 0) * 1000  # Convert to mAh
+                energy = (device_state.get('Wh', 0) or 0) * 1000    # Convert to mWh
+                temp = device_state.get('temp', 0) or 0
 
                 # Calculate resistance (R = V/I, avoid division by zero)
                 resistance = (voltage / current) if current > 0.001 else 0.0  # Ω, threshold 1mA
@@ -256,6 +321,25 @@ def update_data():
                     'temperature': temp,
                     'runtime': (time.time() - test_state['start_time']) if test_state['start_time'] else 0
                 }
+
+                # Emit WebSocket update
+                try:
+                    socketio.emit('status_update', {
+                        'connected': connection_health['is_connected'],
+                        'running': test_state['running'],
+                        'load_on': load_on,
+                        'cutoff_voltage': device_state.get('Vcut', 0.0),
+                        'set_current': device_state.get('Iset', 0.0),
+                        'data': test_state['current_data'],
+                        'connection_health': {
+                            'consecutive_failures': connection_health['consecutive_failures'],
+                            'last_error': connection_health['last_error'],
+                            'reconnect_attempts': connection_health['reconnect_attempts'],
+                            'update_interval': connection_health['update_interval']
+                        }
+                    })
+                except Exception as ws_error:
+                    pass  # WebSocket emit failures are non-critical
 
                 # If test is running, record data point
                 if test_state['running']:
@@ -346,6 +430,15 @@ def test_monitor(cutoff_voltage, max_time):
                 stop_test_internal()
                 break
 
+            # Check heartbeat timeout (browser closed)
+            if last_heartbeat > 0 and time.time() - last_heartbeat > HEARTBEAT_TIMEOUT:
+                print(f'🔌 HEARTBEAT TIMEOUT: No browser connection for {HEARTBEAT_TIMEOUT}s', file=sys.stderr)
+                print(f'   Auto-stopping test for safety', file=sys.stderr)
+                print(f'   Final voltage: {current_voltage:.3f}V', file=sys.stderr)
+                print(f'   Final capacity: {test_state["current_data"]["capacity"]:.0f}mAh', file=sys.stderr)
+                stop_test_internal()
+                break
+
             # Warn if voltage is approaching cutoff
             if current_voltage <= cutoff_voltage + 0.2:
                 print(f'⚠️ LOW VOLTAGE WARNING: {current_voltage:.3f}V (cutoff: {cutoff_voltage}V)', file=sys.stderr)
@@ -404,19 +497,51 @@ def get_status():
 
     if pload and pload.instr and pload.instr.comm:
         try:
-            # Get complete device state using cmd_readstate()
-            device_state = pload.instr.cmd_readstate(energy=True, limits=True, temp=True, short=False)
+            with serial_lock:
+                # Get complete device state using cmd_readstate()
+                device_state = pload.instr.cmd_readstate(energy=True, limits=True, temp=True, short=False)
         except Exception as e:
             print(f'Error getting device status: {e}', file=sys.stderr)
+            connection_health['last_error'] = str(e)
 
     return jsonify({
-        'connected': pload is not None and pload.instr and pload.instr.comm is not None,
+        'connected': connection_health['is_connected'],
         'running': test_state['running'],
         'load_on': device_state.get('out', 0),
         'cutoff_voltage': device_state.get('Vcut', 0.0),
         'set_current': device_state.get('Iset', 0.0),
-        'data': test_state['current_data']
+        'data': test_state['current_data'],
+        'connection_health': {
+            'consecutive_failures': connection_health['consecutive_failures'],
+            'last_error': connection_health['last_error'],
+            'reconnect_attempts': connection_health['reconnect_attempts'],
+            'update_interval': connection_health['update_interval']
+        }
     })
+
+@app.route('/api/reconnect', methods=['POST'])
+def api_reconnect():
+    """Manually trigger device reconnection"""
+    global test_state
+
+    if test_state['running']:
+        return jsonify({
+            'success': False,
+            'error': 'Cannot reconnect while test is running'
+        }), 400
+
+    print('📡 Manual reconnection requested', file=sys.stderr)
+
+    if reconnect_device():
+        return jsonify({
+            'success': True,
+            'message': 'Reconnection successful'
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'error': connection_health['last_error'] or 'Reconnection failed'
+        }), 500
 
 @app.route('/api/start', methods=['POST'])
 def start_test():
@@ -438,59 +563,35 @@ def start_test():
         print(f'=== STARTING BATTERY TEST ===', file=sys.stderr)
         print(f'Test Parameters: Current={current}A, Cutoff={cutoff_voltage}V, MaxTime={max_time}s', file=sys.stderr)
 
-        # Read initial device state before making changes
-        try:
-            initial_state = pload.instr.cmd_readstate(energy=True, limits=True, temp=True, short=False)
-            print(f'Initial device state: Load={initial_state.get("out", 0)}, SetCurrent={initial_state.get("Iset", 0)}A, Cutoff={initial_state.get("Vcut", 0)}V', file=sys.stderr)
-        except Exception as e:
-            print(f'Warning: Could not read initial device state: {e}', file=sys.stderr)
-
         # Reset device energy counters before starting new test
         try:
-            print(f'Sending command: Reset counters', file=sys.stderr)
             pload.instr.cmd_resetcounters()
-            print(f'✓ Counters reset successfully', file=sys.stderr)
-            time.sleep(0.1)  # Brief pause after reset
+            print(f'✓ Counters reset', file=sys.stderr)
+            time.sleep(0.3)
         except Exception as e:
-            print(f'✗ Error resetting device counters: {e}', file=sys.stderr)
+            print(f'✗ Error resetting counters: {e}', file=sys.stderr)
 
         # Set current
         try:
-            print(f'Sending command: Set current to {current}A', file=sys.stderr)
             pload.instr.cmd_setcurrent(current)
-
-            # Verify the setting was applied
-            time.sleep(0.1)
-            actual_current = pload.instr.cmd_getsetcurrent()
-            print(f'✓ Current set: requested={current}A, actual={actual_current}A', file=sys.stderr)
+            print(f'✓ Current set to {current}A', file=sys.stderr)
+            time.sleep(0.3)
         except Exception as e:
             print(f'✗ Error setting current: {e}', file=sys.stderr)
 
         # Set cutoff voltage
         try:
-            print(f'Sending command: Set cutoff to {cutoff_voltage}V', file=sys.stderr)
             pload.instr.cmd_setcutoff(cutoff_voltage)
-
-            # Verify the setting was applied
-            time.sleep(0.1)
-            actual_cutoff = pload.instr.cmd_getsetcutoff()
-            print(f'✓ Cutoff set: requested={cutoff_voltage}V, actual={actual_cutoff}V', file=sys.stderr)
+            print(f'✓ Cutoff set to {cutoff_voltage}V', file=sys.stderr)
+            time.sleep(0.3)
         except Exception as e:
             print(f'✗ Error setting cutoff: {e}', file=sys.stderr)
 
         # Turn on load
         try:
-            print(f'Sending command: Turn load ON', file=sys.stderr)
             pload.instr.cmd_setonoff(1)
-
-            # Verify load is actually on
-            time.sleep(0.2)
-            load_status = pload.instr.cmd_getonoff()
-            print(f'✓ Load status: {load_status} (1=ON, 0=OFF)', file=sys.stderr)
-
-            if load_status != 1:
-                raise Exception(f'Load failed to turn on, status={load_status}')
-
+            print(f'✓ Load turned ON', file=sys.stderr)
+            time.sleep(1.0)  # Wait for device to stabilize
         except Exception as e:
             print(f'✗ Error turning on load: {e}', file=sys.stderr)
             raise e
@@ -498,6 +599,8 @@ def start_test():
         print(f'=== DEVICE CONFIGURATION COMPLETE ===', file=sys.stderr)
 
         # Initialize test state - reset all values
+        global last_heartbeat
+        last_heartbeat = time.time()  # Initialize heartbeat for timeout check
         test_state['running'] = True
         test_state['start_time'] = time.time()
         test_state['data_points'] = []
@@ -530,7 +633,7 @@ def stop_test():
     global test_state, pload
 
     if not test_state['running']:
-        return jsonify({'success': False, 'error': 'No test running'}), 400
+        return jsonify({'success': True, 'message': 'No test running (already stopped)'})
 
     try:
         print(f'=== STOPPING BATTERY TEST ===', file=sys.stderr)
@@ -578,6 +681,13 @@ def reset_counters():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/heartbeat', methods=['POST'])
+def heartbeat():
+    """Heartbeat from browser to prevent auto-stop"""
+    global last_heartbeat
+    last_heartbeat = time.time()
+    return jsonify({'success': True})
+
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """Get current device configuration"""
@@ -610,8 +720,11 @@ def list_serial_ports():
         }), 500
 
     try:
-        # List all available serial ports
+        # List all available serial ports, filtering out virtual/unused ttyS ports
         for port in list_ports.comports():
+            # Skip ttyS ports without real hardware (no USB VID:PID)
+            if port.device.startswith('/dev/ttyS') and 'VID:PID' not in port.hwid:
+                continue
             ports.append({
                 'device': port.device,
                 'description': port.description,
@@ -707,17 +820,24 @@ def set_serial_port():
 
 def main():
     """Main entry point"""
-    global update_thread
+    global update_thread, pload
 
     print('DL24P Web Server starting...')
+
+    # Initialize pload object (needed for API even without connection)
+    if pload is None:
+        pload = PowerLoad()
+        pload.verbrun = True
+        pload.readconf(name='dl24')
+
     print('Initializing device connection...')
 
     if not init_device():
-        print('ERROR: Could not initialize device. Check ~/.dl24.cfg configuration.')
-        print('You can also specify TCP= or PORT= in the config file.')
-        sys.exit(1)
-
-    print('Device connected successfully!')
+        print('WARNING: Could not initialize device.')
+        print('You can configure the connection in the web interface.')
+        print('Select serial port and click Connect.')
+    else:
+        print('Device connected successfully!')
 
     # Start background update thread
     update_thread = threading.Thread(target=update_data, daemon=True)
@@ -730,7 +850,7 @@ def main():
     print('Press Ctrl+C to stop\n')
 
     try:
-        app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+        socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
     except KeyboardInterrupt:
         print('\nShutting down...')
         if pload and pload.instr and pload.instr.comm:

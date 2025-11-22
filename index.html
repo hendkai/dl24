@@ -230,11 +230,18 @@
             background: linear-gradient(90deg, var(--color-success), #00b8d4);
             width: 0%;
             transition: width 0.5s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--color-bg);
+        }
+
+        .progress-bar::after {
+            content: attr(data-progress);
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--color-text);
             font-weight: bold;
+            font-size: 0.9rem;
+            text-shadow: 0 0 3px var(--color-bg);
         }
 
         .chart-container {
@@ -433,6 +440,7 @@
             color: #ffd700;
         }
     </style>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -463,14 +471,14 @@
                     <input type="number" id="cutoffVoltage" value="2.5" min="0.1" max="60" step="0.1">
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="maxTimeGroup">
                     <label for="maxTime">Max Time (minutes, 0 = unlimited)</label>
                     <input type="number" id="maxTime" value="0" min="0" max="1440" step="1">
                 </div>
 
                 <div class="form-group">
                     <label for="logInterval">Log Interval (seconds)</label>
-                    <input type="number" id="logInterval" value="1" min="1" max="60" step="1">
+                    <input type="number" id="logInterval" value="1" min="0.5" max="60" step="0.5">
                 </div>
 
                 <div class="form-group">
@@ -542,6 +550,20 @@
                         </div>
                     </div>
                     <div class="status-row">
+                        <div class="status-indicator">
+                            <span class="indicator-label">Reconnect</span>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button id="reconnectBtn" onclick="reconnectDevice()" style="padding: 6px 12px; background: var(--color-accent); border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: none;">Reconnect</button>
+                        </div>
+                    </div>
+                    <div class="status-row" id="connectionHealthRow" style="display: none;">
+                        <div class="status-indicator">
+                            <span class="indicator-label">Connection Health</span>
+                        </div>
+                        <div class="status-value" id="connectionHealthText" style="font-size: 0.8rem;">OK</div>
+                    </div>
+                    <div class="status-row">
                         <div class="status-indicator" id="loadStatus">
                             <span class="indicator-dot" id="loadDot"></span>
                             <span class="indicator-label">Load Status</span>
@@ -572,6 +594,12 @@
                             <span class="indicator-label">Last Update</span>
                         </div>
                         <div class="status-value" id="lastUpdateText">Never</div>
+                    </div>
+                    <div class="status-row">
+                        <div class="status-indicator">
+                            <span class="indicator-label">System Time</span>
+                        </div>
+                        <div class="status-value" id="systemTimeText" style="font-family: monospace;">--:--:--</div>
                     </div>
                 </div>
             </div>
@@ -614,8 +642,8 @@
                     </div>
                 </div>
 
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressBar">0%</div>
+                <div class="progress-bar" data-progress="0.00%">
+                    <div class="progress-fill" id="progressBar"></div>
                 </div>
 
                 <!-- Device Status Info -->
@@ -626,7 +654,7 @@
                     </div>
                     <div style="text-align: center; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 4px;">
                         <div style="color: #aaa; font-size: 10px;">Load Status</div>
-                        <div id="loadStatus" style="font-weight: bold; color: #ff4444;">OFF</div>
+                        <div id="loadStatusDisplay" style="font-weight: bold; color: #ff4444;">OFF</div>
                     </div>
                     <div style="text-align: center; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 4px;">
                         <div style="color: #aaa; font-size: 10px;">Cutoff Voltage</div>
@@ -690,7 +718,7 @@
             </div>
 
             <div class="chart-container">
-                <canvas id="chart"></canvas>
+                <div id="chart" style="width:100%;height:400px;"></div>
             </div>
         </div>
 
@@ -698,15 +726,24 @@
             <h2>📝 Test Log</h2>
             <div id="log"></div>
             <div class="btn-group">
-                <button class="btn btn-primary" onclick="exportData()">💾 Export Data (CSV)</button>
+                <button class="btn btn-primary" onclick="exportData()">💾 Export Measure File (CSV)</button>
                 <button class="btn btn-primary" onclick="clearLog()">🗑️ Clear Log</button>
+            </div>
+        </div>
+
+        <div class="card" id="analysisCard" style="display: none;">
+            <h2>📊 Testergebnis-Auswertung</h2>
+            <div id="analysisResults" style="line-height: 1.8;"></div>
+            <div style="margin-top: 15px; padding: 10px; background: rgba(255,165,0,0.1); border-left: 3px solid #ffa500; font-size: 0.85rem;">
+                <strong>⚠️ Hinweis:</strong> Diese Auswertung dient nur als Orientierung. Die Bewertung basiert auf typischen 18650-Zellenwerten und kann je nach Hersteller, Alter und Zustand der Zelle variieren. Für kritische Anwendungen sollten professionelle Testgeräte und Herstellerspezifikationen herangezogen werden.
             </div>
         </div>
     </div>
 
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-        // Backend API URL
-        const API_BASE = 'http://localhost:5000/api';
+        // Backend API URL - use same host as page was loaded from
+        const API_BASE = `${window.location.protocol}//${window.location.hostname}:5000/api`;
         const SIMULATION_MODE = false;  // Set to true for demo without hardware
 
         let testRunning = false;
@@ -715,6 +752,7 @@
         let statusInterval = null;
         let dataPoints = [];
         let chart = null;
+        let socket = null;  // WebSocket connection
 
         // Load struggle detection
         let currentHistory = [];
@@ -796,342 +834,88 @@
         let currentCycle = null;
         let customCycle = null;
 
-        // Initialize chart
+        // Initialize Plotly chart
         function initChart() {
-            const canvas = document.getElementById('chart');
-            const ctx = canvas.getContext('2d');
+            const layout = {
+                paper_bgcolor: '#1a1a2e',
+                plot_bgcolor: '#1a1a2e',
+                font: { color: '#eaeaea', family: 'monospace' },
+                margin: { l: 60, r: 60, t: 30, b: 50 },
+                xaxis: {
+                    title: 'Zeit (s)',
+                    gridcolor: 'rgba(0, 217, 255, 0.1)',
+                    linecolor: 'rgba(0, 217, 255, 0.5)',
+                    zerolinecolor: 'rgba(0, 217, 255, 0.3)'
+                },
+                yaxis: {
+                    title: 'Spannung (V)',
+                    gridcolor: 'rgba(0, 217, 255, 0.1)',
+                    linecolor: 'rgba(0, 217, 255, 0.5)',
+                    zerolinecolor: 'rgba(0, 217, 255, 0.3)'
+                },
+                yaxis2: {
+                    title: 'Strom (A) / Leistung (W)',
+                    overlaying: 'y',
+                    side: 'right',
+                    gridcolor: 'rgba(0, 217, 255, 0.05)'
+                },
+                showlegend: true,
+                legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(26, 26, 46, 0.8)' }
+            };
 
-            // Set actual canvas resolution for high DPI displays
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            ctx.scale(dpr, dpr);
+            const config = {
+                responsive: true,
+                displayModeBar: true,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d']
+            };
+
+            // Create empty traces for all metrics
+            const traces = [
+                { x: [], y: [], name: 'Spannung', line: { color: '#3498db', width: 2 }, yaxis: 'y' },
+                { x: [], y: [], name: 'Strom', line: { color: '#e74c3c', width: 2 }, yaxis: 'y2' },
+                { x: [], y: [], name: 'Leistung', line: { color: '#f39c12', width: 2 }, yaxis: 'y2', visible: 'legendonly' },
+                { x: [], y: [], name: 'Widerstand', line: { color: '#9b59b6', width: 2 }, yaxis: 'y2', visible: 'legendonly' },
+                { x: [], y: [], name: 'Kapazität', line: { color: '#2ecc71', width: 2 }, yaxis: 'y2', visible: 'legendonly' },
+                { x: [], y: [], name: 'Energie', line: { color: '#e67e22', width: 2 }, yaxis: 'y2', visible: 'legendonly' },
+                { x: [], y: [], name: 'Temperatur', line: { color: '#1abc9c', width: 2 }, yaxis: 'y2', visible: 'legendonly' }
+            ];
+
+            Plotly.newPlot('chart', traces, layout, config);
 
             chart = {
-                ctx: ctx,
                 data: [],
-                animationFrame: 0,
-
                 draw: function() {
-                    const canvas = ctx.canvas;
-                    const width = rect.width;
-                    const height = rect.height;
+                    if (this.data.length === 0) return;
 
-                    // Clear with subtle gradient background
-                    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-                    gradient.addColorStop(0, '#1a1a2e');
-                    gradient.addColorStop(1, '#0f0f1e');
-                    ctx.fillStyle = gradient;
-                    ctx.fillRect(0, 0, width, height);
+                    const times = this.data.map(d => d.time);
+                    const voltages = this.data.map(d => d.voltage);
+                    const currents = this.data.map(d => d.current);
+                    const powers = this.data.map(d => d.power);
+                    const resistances = this.data.map(d => d.resistance || 0);
+                    const capacities = this.data.map(d => d.capacity / 1000); // Convert to Ah
+                    const energies = this.data.map(d => d.energy / 1000); // Convert to Wh
+                    const temperatures = this.data.map(d => d.temperature || 0);
 
-                    if (this.data.length < 2) {
-                        // Draw "No data" message
-                        ctx.fillStyle = '#666';
-                        ctx.font = '16px monospace';
-                        ctx.textAlign = 'center';
-                        ctx.fillText('Waiting for data...', width / 2, height / 2);
-                        ctx.textAlign = 'left';
-                        return;
-                    }
-
-                    // Draw enhanced grid
-                    this.drawGrid(width, height);
-
-                    // Draw modern voltage curve with gradient
-                    this.drawVoltageCurve(width, height);
-
-                    // Draw enhanced labels
-                    this.drawLabels(width, height);
-                },
-
-                drawGrid: function(width, height) {
-                    // Vertical grid lines
-                    ctx.strokeStyle = 'rgba(0, 217, 255, 0.1)';
-                    ctx.lineWidth = 1;
-                    for (let i = 0; i <= 20; i++) {
-                        const x = width * i / 20;
-                        ctx.beginPath();
-                        ctx.moveTo(x, 0);
-                        ctx.lineTo(x, height);
-                        ctx.stroke();
-                    }
-
-                    // Horizontal grid lines
-                    for (let i = 0; i <= 10; i++) {
-                        const y = height * i / 10;
-                        ctx.beginPath();
-                        ctx.moveTo(0, y);
-                        ctx.lineTo(width, y);
-                        ctx.stroke();
-                    }
-
-                    // Draw axes
-                    ctx.strokeStyle = 'rgba(0, 217, 255, 0.5)';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.moveTo(40, 0);
-                    ctx.lineTo(40, height - 25);
-                    ctx.lineTo(width - 10, height - 25);
-                    ctx.stroke();
-                },
-
-                drawVoltageCurve: function(width, height) {
-                    if (this.data.length < 2) return;
-
-                    const maxTime = this.data[this.data.length - 1].time;
-
-                    // Define colors and scales for each metric
-                    const metrics = {
-                        voltage: {
-                            color: '#3498db',
-                            glowColor: '#00d9ff',
-                            unit: 'V',
-                            getMin: () => Math.min(...this.data.map(d => d.voltage)),
-                            getMax: () => Math.max(...this.data.map(d => d.voltage)),
-                            getValue: (d) => d.voltage
-                        },
-                        current: {
-                            color: '#e74c3c',
-                            glowColor: '#ff6b6b',
-                            unit: 'A',
-                            getMin: () => 0,
-                            getMax: () => Math.max(...this.data.map(d => d.current), 1),
-                            getValue: (d) => d.current
-                        },
-                        power: {
-                            color: '#f39c12',
-                            glowColor: '#ffd93d',
-                            unit: 'W',
-                            getMin: () => 0,
-                            getMax: () => Math.max(...this.data.map(d => d.power), 1),
-                            getValue: (d) => d.power
-                        },
-                        resistance: {
-                            color: '#9b59b6',
-                            glowColor: '#c39bd3',
-                            unit: 'Ω',
-                            getMin: () => 0,
-                            getMax: () => Math.max(...this.data.map(d => d.resistance || 0), 1),
-                            getValue: (d) => d.resistance || 0
-                        },
-                        capacity: {
-                            color: '#2ecc71',
-                            glowColor: '#58d68d',
-                            unit: 'mAh',
-                            getMin: () => 0,
-                            getMax: () => Math.max(...this.data.map(d => d.capacity), 100),
-                            getValue: (d) => d.capacity
-                        },
-                        energy: {
-                            color: '#e67e22',
-                            glowColor: '#f0b27a',
-                            unit: 'mWh',
-                            getMin: () => 0,
-                            getMax: () => Math.max(...this.data.map(d => d.energy), 100),
-                            getValue: (d) => d.energy
-                        },
-                        temperature: {
-                            color: '#1abc9c',
-                            glowColor: '#48c9b0',
-                            unit: '°C',
-                            getMin: () => Math.min(...this.data.map(d => d.temperature || 20), 10),
-                            getMax: () => Math.max(...this.data.map(d => d.temperature || 30), 50),
-                            getValue: (d) => d.temperature || 20
-                        }
+                    const update = {
+                        x: [times, times, times, times, times, times, times],
+                        y: [voltages, currents, powers, resistances, capacities, energies, temperatures]
                     };
 
-                    // Draw selected metrics
-                    let legendY = 20;
-                    Object.entries(metrics).forEach(([key, metric]) => {
-                        if (plotOptions[key]) {
-                            const minValue = metric.getMin();
-                            const maxValue = metric.getMax();
-                            const range = maxValue - minValue || 1;
+                    Plotly.update('chart', update, {}, [0, 1, 2, 3, 4, 5, 6]);
 
-                            // Create gradient for this metric
-                            const curveGradient = ctx.createLinearGradient(0, 0, 0, height);
-                            curveGradient.addColorStop(0, metric.color);
-                            curveGradient.addColorStop(1, metric.glowColor);
-
-                            // Draw the curve line
-                            ctx.beginPath();
-                            ctx.strokeStyle = curveGradient;
-                            ctx.lineWidth = 2.5;
-                            ctx.lineJoin = 'round';
-                            ctx.lineCap = 'round';
-
-                            // Add glow effect
-                            ctx.shadowColor = metric.glowColor;
-                            ctx.shadowBlur = 8;
-
-                            this.data.forEach((point, i) => {
-                                const x = 40 + (point.time / maxTime) * (width - 50);
-                                const value = metric.getValue(point);
-                                const y = height - 25 - ((value - minValue) / range) * (height - 50) * 0.9 - (height - 50) * 0.05;
-
-                                if (i === 0) {
-                                    ctx.moveTo(x, y);
-                                } else {
-                                    ctx.lineTo(x, y);
-                                }
-                            });
-
-                            ctx.stroke();
-                            ctx.shadowBlur = 0;
-
-                            // Draw data points (limited for performance)
-                            ctx.fillStyle = metric.color;
-                            const step = Math.ceil(this.data.length / 50);
-                            for (let i = 0; i < this.data.length; i += step) {
-                                const point = this.data[i];
-                                const x = 40 + (point.time / maxTime) * (width - 50);
-                                const value = metric.getValue(point);
-                                const y = height - 25 - ((value - minValue) / range) * (height - 50) * 0.9 - (height - 50) * 0.05;
-
-                                ctx.beginPath();
-                                ctx.arc(x, y, 2, 0, 2 * Math.PI);
-                                ctx.fill();
-                            }
-
-                            // Draw legend entry
-                            ctx.fillStyle = metric.color;
-                            ctx.font = 'bold 12px monospace';
-                            ctx.textAlign = 'left';
-                            ctx.fillText(`● ${key.charAt(0).toUpperCase() + key.slice(1)}`, 10, legendY);
-
-                            const lastValue = metric.getValue(this.data[this.data.length - 1]);
-                            ctx.font = '11px monospace';
-                            ctx.fillStyle = '#ccc';
-                            ctx.fillText(`${lastValue.toFixed(2)} ${metric.unit}`, 100, legendY);
-
-                            legendY += 15;
-                        }
-                    });
-                },
-
-                drawLabels: function(width, height) {
-                    if (this.data.length < 2) return;
-
-                    const maxTime = this.data[this.data.length - 1].time;
-                    const maxVoltage = Math.max(...this.data.map(d => d.voltage));
-                    const minVoltage = Math.min(...this.data.map(d => d.voltage));
-
-                    // Enhanced font settings
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = 'bold 14px monospace';
-                    ctx.textAlign = 'right';
-
-                    // Y-axis labels
-                    ctx.fillText(`${maxVoltage.toFixed(2)}V`, 35, 20);
-                    ctx.fillText(`${(maxVoltage * 0.75).toFixed(2)}V`, 35, height * 0.25);
-                    ctx.fillText(`${(maxVoltage * 0.5).toFixed(2)}V`, 35, height * 0.5);
-                    ctx.fillText(`${(maxVoltage * 0.25).toFixed(2)}V`, 35, height * 0.75);
-                    ctx.fillText(`${minVoltage.toFixed(2)}V`, 35, height - 25);
-
-                    // Dynamic X-axis time labels
-                    ctx.textAlign = 'center';
-                    ctx.font = '11px monospace';
-                    ctx.fillStyle = '#cccccc';
-
-                    // Calculate optimal time intervals based on duration
-                    let timeIntervals = [];
-                    let timeFormat = '';
-                    let intervalMinutes = 0;
-
-                    if (maxTime < 300) { // Less than 5 minutes - show every 30 seconds
-                        intervalMinutes = 0.5;
-                        timeFormat = 'mm:ss';
-                    } else if (maxTime < 1800) { // Less than 30 minutes - show every 2 minutes
-                        intervalMinutes = 2;
-                        timeFormat = 'mm:ss';
-                    } else if (maxTime < 3600) { // Less than 1 hour - show every 5 minutes
-                        intervalMinutes = 5;
-                        timeFormat = 'HH:mm';
-                    } else if (maxTime < 21600) { // Less than 6 hours - show every 30 minutes
-                        intervalMinutes = 30;
-                        timeFormat = 'HH:mm';
-                    } else { // Very long tests - show every hour
-                        intervalMinutes = 60;
-                        timeFormat = 'HH:mm';
-                    }
-
-                    // Generate time labels
-                    const numIntervals = Math.min(Math.floor(maxTime / (intervalMinutes * 60)), 8);
-                    if (numIntervals > 1) {
-                        for (let i = 0; i <= numIntervals; i++) {
-                            const timeValue = (maxTime * i) / numIntervals;
-                            const x = 40 + (i / numIntervals) * (width - 50);
-
-                            if (i === 0 || i === numIntervals) {
-                                // Always show start and end time with date if needed
-                                const dataPoint = i === 0 ? this.data[0] : this.data[this.data.length - 1];
-                                if (dataPoint && dataPoint.datetime) {
-                                    const dateTime = new Date(dataPoint.datetime);
-                                    if (maxTime >= 3600) { // More than 1 hour - include date
-                                        ctx.fillText(dateTime.toLocaleString('de-DE', {
-                                            month: '2-digit',
-                                            day: '2-digit',
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        }), x, height - 5);
-                                    } else {
-                                        ctx.fillText(dateTime.toLocaleTimeString('de-DE'), x, height - 5);
-                                    }
-                                }
-                            } else {
-                                // Intermediate time labels
-                                const minutes = Math.floor(timeValue / 60);
-                                const seconds = Math.floor(timeValue % 60);
-                                const hours = Math.floor(minutes / 60);
-                                const displayMinutes = minutes % 60;
-
-                                let timeLabel = '';
-                                if (maxTime < 3600) {
-                                    timeLabel = `${displayMinutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-                                } else {
-                                    timeLabel = `${hours.toString().padStart(2, '0')}:${displayMinutes.toString().padStart(2, '0')}`;
-                                }
-
-                                ctx.fillText(timeLabel, x, height - 5);
-                            }
-                        }
-                    }
-
-                    // Duration and stats in corner
-                    ctx.textAlign = 'right';
-                    ctx.font = 'bold 14px monospace';
-
-                    // Dynamic duration formatting
-                    let durationText = '';
-                    if (maxTime < 60) {
-                        durationText = `${maxTime.toFixed(0)}s`;
-                    } else if (maxTime < 3600) {
-                        durationText = `${(maxTime / 60).toFixed(1)} min`;
-                    } else {
-                        const hours = Math.floor(maxTime / 3600);
-                        const minutes = Math.floor((maxTime % 3600) / 60);
-                        durationText = `${hours}h ${minutes}m`;
-                    }
-
-                    ctx.fillStyle = '#00ff88';
-                    ctx.fillText(`⏱ ${durationText}`, width - 10, 20);
-
-                    const currentCapacity = this.data[this.data.length - 1]?.capacity || 0;
-                    ctx.fillStyle = '#ffaa00';
-                    ctx.fillText(`🔋 ${(currentCapacity / 1000).toFixed(2)} Ah`, width - 10, 40);
-
-                    const avgCurrent = this.data.reduce((sum, d) => sum + d.current, 0) / this.data.length;
-                    ctx.fillStyle = '#ff00ff';
-                    ctx.fillText(`⚡ ${avgCurrent.toFixed(2)} A`, width - 10, 60);
-
-                    // Add scale indicator for very long tests
-                    if (maxTime > 7200) { // More than 2 hours
-                        ctx.fillStyle = '#888888';
-                        ctx.font = '10px monospace';
-                        ctx.fillText(`Scale: 1px = ${(maxTime / (width - 50)).toFixed(1)}s`, width - 10, height - 15);
-                    }
+                    // Update trace visibility based on plotOptions checkboxes
+                    const visibility = [
+                        plotOptions.voltage ? true : 'legendonly',
+                        plotOptions.current ? true : 'legendonly',
+                        plotOptions.power ? true : 'legendonly',
+                        plotOptions.resistance ? true : 'legendonly',
+                        plotOptions.capacity ? true : 'legendonly',
+                        plotOptions.energy ? true : 'legendonly',
+                        plotOptions.temperature ? true : 'legendonly'
+                    ];
+                    Plotly.restyle('chart', {visible: visibility});
                 }
+            };
         }
 
         function setPreset(presetName) {
@@ -1161,7 +945,17 @@
                 if (dischargePhase) {
                     document.getElementById('dischargeCurrent').value = dischargePhase.current || 1.0;
                     document.getElementById('cutoffVoltage').value = dischargePhase.cutoff || 2.5;
-                    document.getElementById('maxTime').value = Math.floor((dischargePhase.maxTime || 0) / 60);
+                    // maxTime is already in minutes
+                    document.getElementById('maxTime').value = dischargePhase.maxTime || 0;
+                }
+
+                // Show/hide maxTime field based on cycle complexity
+                // Simple cycles (1 phase, no ramps) show maxTime, complex cycles hide it
+                const isSimpleCycle = cycle.phases.length === 1 &&
+                    !cycle.phases.some(p => p.type === 'ramp' || p.type === 'rest');
+                const maxTimeGroup = document.getElementById('maxTimeGroup');
+                if (maxTimeGroup) {
+                    maxTimeGroup.style.display = isSimpleCycle ? 'block' : 'none';
                 }
 
                 // Show cycle details
@@ -1484,6 +1278,7 @@
 
                     // Instant button update
                     updateButtonStatesInstant(true);
+                    document.getElementById('statusMessage').textContent = '🔋 Test running...';
                     document.getElementById('statusMessage').className = 'info-box';
 
                     // Enhanced logging with device communication details
@@ -1518,7 +1313,7 @@
                     const energy = (simCapacity * simVoltage) / 1000;
 
                     updateDisplay(simVoltage, current, power, resistance, simCapacity, energy, 25.0, runtime);
-                    dataPoints.push({ time: runtime, voltage: simVoltage, current: current, capacity: simCapacity });
+                    dataPoints.push({ time: runtime, voltage: simVoltage, current: current, power: power, resistance: resistance, capacity: simCapacity, energy: energy, temperature: 25.0 });
                     
                     if (chart) {
                         chart.data = dataPoints;
@@ -1586,6 +1381,126 @@
             const energy = parseFloat(document.getElementById('energy').textContent);
 
             log(`Test completed - Capacity: ${capacity}mAh, Energy: ${energy}mWh`, 'info');
+
+            // Run analysis after test completion
+            analyzeResults();
+        }
+
+        function analyzeResults() {
+            if (dataPoints.length < 10) {
+                return; // Not enough data for analysis
+            }
+
+            const analysisCard = document.getElementById('analysisCard');
+            const resultsDiv = document.getElementById('analysisResults');
+
+            // Get test data
+            const capacity = dataPoints[dataPoints.length - 1].capacity || 0;
+            const energy = dataPoints[dataPoints.length - 1].energy || 0;
+            const runtime = dataPoints[dataPoints.length - 1].time || 0;
+            const startVoltage = dataPoints[0].voltage;
+            const endVoltage = dataPoints[dataPoints.length - 1].voltage;
+            const avgCurrent = dataPoints.reduce((sum, p) => sum + p.current, 0) / dataPoints.length;
+
+            // Calculate average resistance (excluding first few points for stabilization)
+            const resistancePoints = dataPoints.slice(5).filter(p => p.resistance && p.resistance > 0 && p.resistance < 1);
+            const avgResistance = resistancePoints.length > 0
+                ? resistancePoints.reduce((sum, p) => sum + p.resistance, 0) / resistancePoints.length
+                : 0;
+
+            // Calculate voltage drop rate
+            const voltageDrop = startVoltage - endVoltage;
+            const voltageDropRate = runtime > 0 ? (voltageDrop / runtime) * 3600 : 0; // V/h
+
+            // Rating functions
+            function rateCapacity(cap) {
+                if (cap >= 3000) return { rating: 'Ausgezeichnet', color: '#00ff00', score: 5 };
+                if (cap >= 2500) return { rating: 'Sehr gut', color: '#88ff00', score: 4 };
+                if (cap >= 2000) return { rating: 'Gut', color: '#ffff00', score: 3 };
+                if (cap >= 1500) return { rating: 'Akzeptabel', color: '#ffaa00', score: 2 };
+                if (cap >= 1000) return { rating: 'Schwach', color: '#ff6600', score: 1 };
+                return { rating: 'Schlecht', color: '#ff0000', score: 0 };
+            }
+
+            function rateResistance(res) {
+                if (res <= 0) return { rating: 'N/A', color: '#888888', score: -1 };
+                if (res <= 0.030) return { rating: 'Ausgezeichnet', color: '#00ff00', score: 5 };
+                if (res <= 0.050) return { rating: 'Sehr gut', color: '#88ff00', score: 4 };
+                if (res <= 0.080) return { rating: 'Gut', color: '#ffff00', score: 3 };
+                if (res <= 0.120) return { rating: 'Akzeptabel', color: '#ffaa00', score: 2 };
+                if (res <= 0.200) return { rating: 'Erhöht', color: '#ff6600', score: 1 };
+                return { rating: 'Hoch', color: '#ff0000', score: 0 };
+            }
+
+            function rateVoltageStability(dropRate) {
+                if (dropRate <= 0.3) return { rating: 'Sehr stabil', color: '#00ff00', score: 5 };
+                if (dropRate <= 0.5) return { rating: 'Stabil', color: '#88ff00', score: 4 };
+                if (dropRate <= 0.8) return { rating: 'Normal', color: '#ffff00', score: 3 };
+                if (dropRate <= 1.2) return { rating: 'Erhöht', color: '#ffaa00', score: 2 };
+                return { rating: 'Instabil', color: '#ff6600', score: 1 };
+            }
+
+            const capRating = rateCapacity(capacity);
+            const resRating = rateResistance(avgResistance);
+            const voltRating = rateVoltageStability(voltageDropRate);
+
+            // Overall rating
+            const scores = [capRating.score, voltRating.score];
+            if (resRating.score >= 0) scores.push(resRating.score);
+            const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+            let overallRating, overallColor;
+            if (avgScore >= 4.5) { overallRating = 'Ausgezeichnet'; overallColor = '#00ff00'; }
+            else if (avgScore >= 3.5) { overallRating = 'Sehr gut'; overallColor = '#88ff00'; }
+            else if (avgScore >= 2.5) { overallRating = 'Gut'; overallColor = '#ffff00'; }
+            else if (avgScore >= 1.5) { overallRating = 'Akzeptabel'; overallColor = '#ffaa00'; }
+            else { overallRating = 'Schwach'; overallColor = '#ff6600'; }
+
+            // Format runtime
+            const hours = Math.floor(runtime / 3600);
+            const minutes = Math.floor((runtime % 3600) / 60);
+            const seconds = Math.floor(runtime % 60);
+            const runtimeStr = `${hours}h ${minutes}m ${seconds}s`;
+
+            // Build results HTML
+            let html = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div>
+                        <strong>📊 Messwerte:</strong><br>
+                        • Kapazität: <strong>${capacity.toFixed(0)} mAh</strong><br>
+                        • Energie: <strong>${energy.toFixed(0)} mWh</strong><br>
+                        • Testdauer: <strong>${runtimeStr}</strong><br>
+                        • Ø Strom: <strong>${avgCurrent.toFixed(3)} A</strong><br>
+                        • Ø Innenwiderstand: <strong>${avgResistance > 0 ? (avgResistance * 1000).toFixed(1) + ' mΩ' : 'N/A'}</strong>
+                    </div>
+                    <div>
+                        <strong>📈 Spannungsverlauf:</strong><br>
+                        • Start: <strong>${startVoltage.toFixed(3)} V</strong><br>
+                        • Ende: <strong>${endVoltage.toFixed(3)} V</strong><br>
+                        • Abfall: <strong>${voltageDrop.toFixed(3)} V</strong><br>
+                        • Rate: <strong>${voltageDropRate.toFixed(2)} V/h</strong>
+                    </div>
+                </div>
+
+                <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px;">
+                    <strong>⭐ Bewertung:</strong><br><br>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>• Kapazität: <span style="color: ${capRating.color}; font-weight: bold;">${capRating.rating}</span></div>
+                        <div>• Innenwiderstand: <span style="color: ${resRating.color}; font-weight: bold;">${resRating.rating}</span></div>
+                        <div>• Spannungsstabilität: <span style="color: ${voltRating.color}; font-weight: bold;">${voltRating.rating}</span></div>
+                        <div>• <strong>Gesamtbewertung: <span style="color: ${overallColor}; font-size: 1.1em;">${overallRating}</span></strong></div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 15px; font-size: 0.9rem; color: #aaa;">
+                    <strong>Typische 18650-Werte:</strong> Kapazität 2000-3500mAh, Innenwiderstand 20-80mΩ
+                </div>
+            `;
+
+            resultsDiv.innerHTML = html;
+            analysisCard.style.display = 'block';
+
+            log('📊 Testergebnis-Auswertung erstellt', 'info');
         }
 
         function updateDisplay(voltage, current, power, resistance, capacity, energy, temperature, runtime) {
@@ -1595,7 +1510,7 @@
             document.getElementById('resistance').innerHTML = `${resistance.toFixed(3)}<span class="status-unit">Ω</span>`;
             document.getElementById('capacity').innerHTML = `${Math.round(capacity)}<span class="status-unit">mAh</span>`;
             document.getElementById('energy').innerHTML = `${Math.round(energy)}<span class="status-unit">mWh</span>`;
-            document.getElementById('temperature').innerHTML = `${temperature.toFixed(1)}<span class="status-unit">°C</span>`;
+            document.getElementById('temperature').innerHTML = `${temperature.toFixed(2)}<span class="status-unit">°C</span>`;
             
             const hours = Math.floor(runtime / 3600);
             const minutes = Math.floor((runtime % 3600) / 60);
@@ -1604,10 +1519,24 @@
                 `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
             
             const cutoff = parseFloat(document.getElementById('cutoffVoltage').value);
+            const maxTime = parseInt(document.getElementById('maxTime').value) * 60; // in seconds
             const startVoltage = dataPoints.length > 0 ? dataPoints[0].voltage : voltage;
-            const progress = ((startVoltage - voltage) / (startVoltage - cutoff)) * 100;
-            document.getElementById('progressBar').style.width = `${Math.min(progress, 100)}%`;
-            document.getElementById('progressBar').textContent = `${Math.round(progress)}%`;
+
+            // Calculate voltage-based progress (only if startVoltage > cutoff)
+            let voltageProgress = 0;
+            if (startVoltage > cutoff && voltage <= startVoltage) {
+                voltageProgress = ((startVoltage - voltage) / (startVoltage - cutoff)) * 100;
+            }
+
+            // Calculate time-based progress (if maxTime is set)
+            const timeProgress = (maxTime > 0) ? (runtime / maxTime) * 100 : 0;
+
+            // Use the higher progress (whichever condition is closer to completion)
+            // Clamp between 0 and 100
+            const progress = Math.max(0, Math.min(100, Math.max(voltageProgress, timeProgress)));
+
+            document.getElementById('progressBar').style.width = `${progress}%`;
+            document.getElementById('progressBar').parentElement.setAttribute('data-progress', `${progress.toFixed(2)}%`);
         }
 
         function exportData() {
@@ -1616,19 +1545,20 @@
                 return;
             }
 
-            let csv = 'Time (s),Voltage (V),Current (A),Capacity (mAh)\n';
+            // Export ALL values regardless of plot settings
+            let csv = 'Time (s),Voltage (V),Current (A),Power (W),Resistance (Ohm),Capacity (mAh),Energy (mWh),Temperature (C)\n';
             dataPoints.forEach(point => {
-                csv += `${point.time.toFixed(1)},${point.voltage.toFixed(3)},${point.current.toFixed(3)},${point.capacity.toFixed(1)}\n`;
+                csv += `${point.time.toFixed(1)},${point.voltage.toFixed(3)},${point.current.toFixed(3)},${(point.power || 0).toFixed(3)},${(point.resistance || 0).toFixed(3)},${point.capacity.toFixed(1)},${(point.energy || 0).toFixed(1)},${(point.temperature || 0).toFixed(1)}\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `18650_test_${new Date().toISOString().slice(0,10)}.csv`;
+            a.download = `battery_test_${new Date().toISOString().slice(0,10)}_${new Date().toTimeString().slice(0,5).replace(':','')}.csv`;
             a.click();
 
-            log('Data exported as CSV', 'info');
+            log('Measure file exported as CSV', 'info');
         }
 
         // Auto-update cutoff voltage based on battery type
@@ -1711,8 +1641,11 @@
 
         function hideLoadStruggleWarning() {
             const warning = document.getElementById('loadStruggleWarning');
+            // Only log if warning was actually visible
+            if (warning.style.display !== 'none') {
+                log('✅ Load struggle resolved', 'info');
+            }
             warning.style.display = 'none';
-            log('✅ Load struggle resolved', 'info');
         }
 
         // Instant button state updates
@@ -1758,9 +1691,11 @@
                 if (result.connected) {
                     connectionDot.className = 'indicator-dot connected';
                     connectionText.textContent = 'Connected';
+                    connectionText.style.color = '#44ff44';
                 } else {
                     connectionDot.className = 'indicator-dot disconnected';
                     connectionText.textContent = 'Disconnected';
+                    connectionText.style.color = '#ff4444';
                 }
             }
 
@@ -1817,7 +1752,8 @@
 
             if (startBtn && stopBtn) {
                 // Check if load is actually drawing current (ON + current > 0.01A)
-                const isActuallyRunning = result.load_on && data.current > 0.01;
+                // Also consider frontend testRunning state for robustness against comm errors
+                const isActuallyRunning = (result.load_on && data.current > 0.01) || testRunning || result.running;
 
                 if (isActuallyRunning) {
                     // Device is actively discharging - only show stop button
@@ -1827,18 +1763,12 @@
                     stopBtn.textContent = '⏹ Stop Test';
 
                     // Update testRunning state to match reality
-                    if (!testRunning) {
+                    if (!testRunning && result.load_on && data.current > 0.01) {
                         testRunning = true;
                         log('🔋 Device is actively discharging - test state synchronized', 'info');
                     }
                 } else {
                     // Device is idle - show start button
-                    if (result.running) {
-                        // Backend thinks test is running but device is idle - update backend state
-                        testRunning = false;
-                        log('⚠️ Test state corrected - device is idle', 'warning');
-                    }
-
                     startBtn.disabled = false;
                     stopBtn.disabled = true;
                     startBtn.textContent = '▶ Start Test';
@@ -1853,16 +1783,34 @@
                     const response = await fetch(`${API_BASE}/status`);
                     const result = await response.json();
 
-                    if (result.connected && result.data) {
+                    if (result.data) {
                         const data = result.data;
                         const runtime = data.runtime;
 
                         // Update System Status
                         updateSystemStatus(result, data);
 
+                        // Update connection health display
+                        if (result.connection_health) {
+                            updateConnectionHealth(result.connection_health);
+                        }
+
                         // Update device status displays
-                        document.getElementById('loadStatus').textContent = result.load_on ? 'ON' : 'OFF';
-                        document.getElementById('loadStatus').style.color = result.load_on ? '#44ff44' : '#ff4444';
+                        const loadOnText = result.load_on ? 'ON' : 'OFF';
+                        const loadOnColor = result.load_on ? '#44ff44' : '#ff4444';
+
+                        // Update both load status displays
+                        const loadText = document.getElementById('loadText');
+                        const loadStatusDisplay = document.getElementById('loadStatusDisplay');
+                        if (loadText) {
+                            loadText.textContent = loadOnText;
+                            loadText.style.color = loadOnColor;
+                        }
+                        if (loadStatusDisplay) {
+                            loadStatusDisplay.textContent = loadOnText;
+                            loadStatusDisplay.style.color = loadOnColor;
+                        }
+
                         document.getElementById('cutoffDisplay').textContent = result.cutoff_voltage.toFixed(2) + 'V';
                         document.getElementById('setCurrentDisplay').textContent = result.set_current.toFixed(2) + 'A';
 
@@ -1884,7 +1832,11 @@
                             time: runtime,
                             voltage: data.voltage,
                             current: data.current,
-                            capacity: data.capacity
+                            power: data.power,
+                            resistance: data.resistance,
+                            capacity: data.capacity,
+                            energy: data.energy,
+                            temperature: data.temperature
                         });
 
                         if (chart) {
@@ -2025,10 +1977,189 @@
             }
         }
 
+        async function reconnectDevice() {
+            if (SIMULATION_MODE) {
+                log('✅ Reconnected (simulation mode)', 'info');
+                return;
+            }
+
+            const reconnectBtn = document.getElementById('reconnectBtn');
+            reconnectBtn.disabled = true;
+            reconnectBtn.textContent = '...';
+
+            try {
+                log('🔄 Attempting reconnection...', 'info');
+
+                const response = await fetch(`${API_BASE}/reconnect`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    log(`✅ ${result.message}`, 'info');
+                    reconnectBtn.style.display = 'none';
+                    setTimeout(() => {
+                        checkConnection();
+                        updateStatus();
+                    }, 500);
+                } else {
+                    log(`❌ Reconnection failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error during reconnection: ${error.message}`, 'error');
+            } finally {
+                reconnectBtn.disabled = false;
+                reconnectBtn.textContent = 'Reconnect';
+            }
+        }
+
+        function updateConnectionHealth(health) {
+            const healthRow = document.getElementById('connectionHealthRow');
+            const healthText = document.getElementById('connectionHealthText');
+            const reconnectBtn = document.getElementById('reconnectBtn');
+
+            if (!health) return;
+
+            // Show reconnect button if there are connection issues
+            if (health.consecutive_failures > 0 || health.last_error) {
+                reconnectBtn.style.display = 'inline-block';
+                healthRow.style.display = 'flex';
+
+                if (health.consecutive_failures >= 3) {
+                    healthText.textContent = `⚠️ ${health.consecutive_failures} failures`;
+                    healthText.style.color = '#ff4444';
+                } else if (health.consecutive_failures > 0) {
+                    healthText.textContent = `${health.consecutive_failures} failure(s)`;
+                    healthText.style.color = '#ffaa00';
+                }
+
+                if (health.last_error) {
+                    healthText.title = health.last_error;
+                }
+            } else {
+                reconnectBtn.style.display = 'none';
+                healthRow.style.display = 'none';
+            }
+        }
+
+        // Update system time display
+        function updateSystemTime() {
+            const timeEl = document.getElementById('systemTimeText');
+            if (timeEl) {
+                const now = new Date();
+                timeEl.textContent = now.toLocaleTimeString('de-DE', {
+                    timeZone: 'Europe/Berlin',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            }
+        }
+
+        // Initialize WebSocket connection
+        function initWebSocket() {
+            if (SIMULATION_MODE) return;
+
+            try {
+                socket = io(`${window.location.protocol}//${window.location.hostname}:5000`);
+
+                socket.on('connect', () => {
+                    log('🔌 WebSocket connected', 'info');
+                });
+
+                socket.on('disconnect', () => {
+                    log('⚠️ WebSocket disconnected', 'warning');
+                });
+
+                socket.on('status_update', (result) => {
+                    if (result.data) {
+                        const data = result.data;
+                        const runtime = data.runtime;
+
+                        // Update System Status
+                        updateSystemStatus(result, data);
+
+                        // Update connection health display
+                        if (result.connection_health) {
+                            updateConnectionHealth(result.connection_health);
+                        }
+
+                        // Update device status displays
+                        const loadOnText = result.load_on ? 'ON' : 'OFF';
+                        const loadOnColor = result.load_on ? '#44ff44' : '#ff4444';
+
+                        const loadText = document.getElementById('loadText');
+                        const loadStatusDisplay = document.getElementById('loadStatusDisplay');
+                        if (loadText) {
+                            loadText.textContent = loadOnText;
+                            loadText.style.color = loadOnColor;
+                        }
+                        if (loadStatusDisplay) {
+                            loadStatusDisplay.textContent = loadOnText;
+                            loadStatusDisplay.style.color = loadOnColor;
+                        }
+
+                        document.getElementById('cutoffDisplay').textContent = result.cutoff_voltage.toFixed(2) + 'V';
+                        document.getElementById('setCurrentDisplay').textContent = result.set_current.toFixed(2) + 'A';
+
+                        updateDisplay(
+                            data.voltage,
+                            data.current,
+                            data.power,
+                            data.resistance,
+                            data.capacity,
+                            data.energy,
+                            data.temperature,
+                            runtime
+                        );
+
+                        // Check for load struggle
+                        checkLoadStruggle(data.current, result.set_current, data.voltage, result.cutoff_voltage);
+
+                        // Record data point if test is running
+                        if (testRunning && runtime > 0) {
+                            dataPoints.push({
+                                time: runtime,
+                                voltage: data.voltage,
+                                current: data.current,
+                                power: data.power,
+                                resistance: data.resistance,
+                                capacity: data.capacity,
+                                energy: data.energy,
+                                temperature: data.temperature
+                            });
+
+                            if (chart) {
+                                chart.data = dataPoints;
+                                chart.draw();
+                            }
+                        }
+
+                        // Check if test stopped automatically
+                        if (!result.running && testRunning) {
+                            stopTest();
+                        }
+                    }
+                });
+
+                socket.on('connect_error', (error) => {
+                    log(`❌ WebSocket error: ${error.message}`, 'error');
+                });
+
+            } catch (error) {
+                log(`❌ WebSocket initialization failed: ${error.message}`, 'error');
+            }
+        }
+
         // Initialize on load
         window.addEventListener('load', () => {
             initChart();
             log('18650 Battery Test Manager started', 'info');
+
+            // Start system time clock
+            updateSystemTime();
+            setInterval(updateSystemTime, 1000);
 
             if (SIMULATION_MODE) {
                 log('⚠️ SIMULATION MODE active', 'warning');
@@ -2038,12 +2169,14 @@
                 log('Connecting to backend...', 'info');
                 checkConnection();
                 refreshPorts();
-                // Update status every 2 seconds even when not testing
+                initWebSocket();  // Initialize WebSocket for real-time updates
+
+                // Fallback polling every 5 seconds (in case WebSocket fails)
                 setInterval(() => {
-                    if (!testRunning) {
+                    if (!socket || !socket.connected) {
                         updateStatus();
                     }
-                }, 2000);
+                }, 5000);
             }
         });
 
@@ -2053,6 +2186,22 @@
                 chart.draw();
             }
         });
+
+        // Safety: Stop test when browser closes
+        window.addEventListener('beforeunload', (event) => {
+            if (testRunning && !SIMULATION_MODE) {
+                // Send synchronous stop request
+                navigator.sendBeacon(`${API_BASE}/stop`, '');
+                log('⚠️ Browser closing - stopping test', 'warning');
+            }
+        });
+
+        // Heartbeat to keep connection alive
+        if (!SIMULATION_MODE) {
+            setInterval(() => {
+                fetch(`${API_BASE}/heartbeat`, { method: 'POST' }).catch(() => {});
+            }, 5000);
+        }
     </script>
 </body>
 </html>
