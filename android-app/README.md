@@ -1,6 +1,6 @@
-# DL24 BLE Controller - Android App
+# DL24 Controller - Android App
 
-Android app for controlling Atorch DL24P electronic loads via Bluetooth Low Energy (BLE).
+Android app for controlling Atorch DL24P electronic loads via classic Bluetooth (SPP).
 
 ## Features
 
@@ -16,7 +16,7 @@ Android app for controlling Atorch DL24P electronic loads via Bluetooth Low Ener
 
 - Android 8.0 (API 26) or higher
 - BLE-capable device
-- DL24P with BLE adapter (or ESP32 BLE-to-Serial bridge)
+- DL24P with Bluetooth module (built-in)
 
 ## Building
 
@@ -28,17 +28,13 @@ Android app for controlling Atorch DL24P electronic loads via Bluetooth Low Ener
 ./gradlew assembleDebug
 ```
 
-## BLE Compatibility Note
+## Bluetooth Connection
 
-The DL24P natively uses **classic Bluetooth SPP** (Serial Port Profile), not BLE.
-To use this app, you need one of:
+The DL24P uses **classic Bluetooth SPP** (Serial Port Profile) - the same as the official Atorch app.
 
-1. **ESP32 BLE Bridge** - Flash an ESP32 with BLE-to-UART firmware
-2. **HM-10/HM-19 Module** - BLE module connected to DL24P UART pins
-3. **Custom BLE adapter** - Any BLE-to-Serial bridge
-
-The app uses Nordic UART Service (NUS) UUIDs by default but will also discover
-custom BLE characteristics.
+1. Pair your DL24P in Android Bluetooth settings first
+2. Open the app and select your device
+3. The app connects via RFCOMM (SPP UUID: 00001101-0000-1000-8000-00805F9B34FB)
 
 ## Protocol
 

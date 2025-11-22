@@ -1,7 +1,7 @@
 package com.dl24.app.ui
 
 import android.annotation.SuppressLint
-import android.bluetooth.le.ScanResult
+import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -13,7 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.dl24.app.R
-import com.dl24.app.ble.BleManager
+import com.dl24.app.ble.BluetoothSppManager
 import com.dl24.app.databinding.ActivityScanBinding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 class ScanActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityScanBinding
-    private lateinit var bleManager: BleManager
+    private lateinit var sppManager: BluetoothSppManager
     private lateinit var adapter: DeviceAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,12 +29,12 @@ class ScanActivity : AppCompatActivity() {
         binding = ActivityScanBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        bleManager = BleManager(this)
+        sppManager = BluetoothSppManager(this)
 
-        adapter = DeviceAdapter { result ->
+        adapter = DeviceAdapter { device ->
             val intent = Intent(this, DeviceActivity::class.java)
-            intent.putExtra("device_address", result.device.address)
-            intent.putExtra("device_name", result.device.name ?: "Unknown")
+            intent.putExtra("device_address", device.address)
+            intent.putExtra("device_name", device.name ?: "Unknown")
             startActivity(intent)
             finish()
         }
@@ -45,38 +45,43 @@ class ScanActivity : AppCompatActivity() {
         binding.btnScan.setOnClickListener {
             binding.progressBar.visibility = View.VISIBLE
             binding.btnScan.isEnabled = false
-            bleManager.startScan()
+            sppManager.startDiscovery()
         }
 
         lifecycleScope.launch {
-            bleManager.scanResults.collectLatest { results ->
-                adapter.updateResults(results)
-                if (results.isNotEmpty()) {
+            sppManager.discoveredDevices.collectLatest { devices ->
+                adapter.updateDevices(devices)
+                if (devices.isNotEmpty()) {
                     binding.progressBar.visibility = View.GONE
                     binding.btnScan.isEnabled = true
                 }
             }
         }
 
-        // Auto-start scan
-        binding.progressBar.visibility = View.VISIBLE
-        bleManager.startScan()
+        // Show paired devices immediately
+        val paired = sppManager.getPairedDevices().toList()
+        if (paired.isNotEmpty()) {
+            adapter.updateDevices(paired)
+        } else {
+            binding.progressBar.visibility = View.VISIBLE
+            sppManager.startDiscovery()
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        bleManager.stopScan()
+        sppManager.stopDiscovery()
     }
 
     private class DeviceAdapter(
-        private val onClick: (ScanResult) -> Unit
+        private val onClick: (BluetoothDevice) -> Unit
     ) : RecyclerView.Adapter<DeviceAdapter.ViewHolder>() {
 
-        private var results = listOf<ScanResult>()
+        private var devices = listOf<BluetoothDevice>()
 
         @SuppressLint("NotifyDataSetChanged")
-        fun updateResults(newResults: List<ScanResult>) {
-            results = newResults
+        fun updateDevices(newDevices: List<BluetoothDevice>) {
+            devices = newDevices
             notifyDataSetChanged()
         }
 
@@ -88,14 +93,14 @@ class ScanActivity : AppCompatActivity() {
 
         @SuppressLint("MissingPermission")
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val result = results[position]
-            holder.name.text = result.device.name ?: "Unknown Device"
-            holder.address.text = result.device.address
-            holder.rssi.text = "${result.rssi} dBm"
-            holder.itemView.setOnClickListener { onClick(result) }
+            val device = devices[position]
+            holder.name.text = device.name ?: "Unknown Device"
+            holder.address.text = device.address
+            holder.rssi.text = if (device.bondState == BluetoothDevice.BOND_BONDED) "Paired" else ""
+            holder.itemView.setOnClickListener { onClick(device) }
         }
 
-        override fun getItemCount() = results.size
+        override fun getItemCount() = devices.size
 
         class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val name: TextView = view.findViewById(R.id.txtDeviceName)

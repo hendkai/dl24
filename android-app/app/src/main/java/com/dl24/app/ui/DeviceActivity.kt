@@ -1,14 +1,13 @@
 package com.dl24.app.ui
 
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.os.Bundle
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.dl24.app.ble.BleManager
+import com.dl24.app.ble.BluetoothSppManager
 import com.dl24.app.databinding.ActivityDeviceBinding
 import com.dl24.app.protocol.AtorchProtocol
 import kotlinx.coroutines.flow.collectLatest
@@ -18,7 +17,7 @@ import kotlinx.coroutines.launch
 class DeviceActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityDeviceBinding
-    private lateinit var bleManager: BleManager
+    private lateinit var sppManager: BluetoothSppManager
     private var currentMilliAmps = 1000
     private var cutoffMilliVolts = 2800
 
@@ -27,7 +26,7 @@ class DeviceActivity : AppCompatActivity() {
         binding = ActivityDeviceBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        bleManager = BleManager(this)
+        sppManager = BluetoothSppManager(this)
 
         val deviceAddress = intent.getStringExtra("device_address") ?: return
         val deviceName = intent.getStringExtra("device_name") ?: "Unknown"
@@ -38,7 +37,7 @@ class DeviceActivity : AppCompatActivity() {
         // Connect to device
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         val device = bluetoothManager.adapter.getRemoteDevice(deviceAddress)
-        bleManager.connect(device)
+        sppManager.connect(device)
 
         setupUI()
         observeState()
@@ -47,21 +46,21 @@ class DeviceActivity : AppCompatActivity() {
     private fun setupUI() {
         binding.btnOn.setOnClickListener {
             val cmd = AtorchProtocol.createOnCommand()
-            if (bleManager.sendData(cmd)) {
+            if (sppManager.sendData(cmd)) {
                 Toast.makeText(this, "Load ON", Toast.LENGTH_SHORT).show()
             }
         }
 
         binding.btnOff.setOnClickListener {
             val cmd = AtorchProtocol.createOffCommand()
-            if (bleManager.sendData(cmd)) {
+            if (sppManager.sendData(cmd)) {
                 Toast.makeText(this, "Load OFF", Toast.LENGTH_SHORT).show()
             }
         }
 
         binding.btnReset.setOnClickListener {
             val cmd = AtorchProtocol.createResetCommand()
-            bleManager.sendData(cmd)
+            sppManager.sendData(cmd)
             Toast.makeText(this, "Counters Reset", Toast.LENGTH_SHORT).show()
         }
 
@@ -77,7 +76,7 @@ class DeviceActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 val cmd = AtorchProtocol.createSetCurrentCommand(currentMilliAmps)
-                bleManager.sendData(cmd)
+                sppManager.sendData(cmd)
             }
         })
 
@@ -93,38 +92,36 @@ class DeviceActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 val cmd = AtorchProtocol.createSetCutoffCommand(cutoffMilliVolts)
-                bleManager.sendData(cmd)
+                sppManager.sendData(cmd)
             }
         })
 
         binding.btnDisconnect.setOnClickListener {
-            bleManager.disconnect()
+            sppManager.disconnect()
             finish()
         }
     }
 
     private fun observeState() {
         lifecycleScope.launch {
-            bleManager.connectionState.collectLatest { state ->
+            sppManager.connectionState.collectLatest { state ->
                 binding.txtStatus.text = when (state) {
-                    BleManager.ConnectionState.DISCONNECTED -> "Disconnected"
-                    BleManager.ConnectionState.CONNECTING -> "Connecting..."
-                    BleManager.ConnectionState.CONNECTED -> "Connected"
-                    BleManager.ConnectionState.DISCOVERING_SERVICES -> "Discovering..."
-                    BleManager.ConnectionState.READY -> "Ready"
+                    BluetoothSppManager.ConnectionState.DISCONNECTED -> "Disconnected"
+                    BluetoothSppManager.ConnectionState.CONNECTING -> "Connecting..."
+                    BluetoothSppManager.ConnectionState.CONNECTED -> "Connected"
                 }
 
-                val isReady = state == BleManager.ConnectionState.READY
-                binding.btnOn.isEnabled = isReady
-                binding.btnOff.isEnabled = isReady
-                binding.btnReset.isEnabled = isReady
-                binding.seekCurrent.isEnabled = isReady
-                binding.seekCutoff.isEnabled = isReady
+                val isConnected = state == BluetoothSppManager.ConnectionState.CONNECTED
+                binding.btnOn.isEnabled = isConnected
+                binding.btnOff.isEnabled = isConnected
+                binding.btnReset.isEnabled = isConnected
+                binding.seekCurrent.isEnabled = isConnected
+                binding.seekCutoff.isEnabled = isConnected
             }
         }
 
         lifecycleScope.launch {
-            bleManager.receivedData.collectLatest { data ->
+            sppManager.receivedData.collectLatest { data ->
                 data?.let { parseAndDisplayStatus(it) }
             }
         }
@@ -147,6 +144,6 @@ class DeviceActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        bleManager.disconnect()
+        sppManager.cleanup()
     }
 }

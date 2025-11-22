@@ -9,14 +9,13 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.dl24.app.R
-import com.dl24.app.ble.BleManager
+import com.dl24.app.ble.BluetoothSppManager
 import com.dl24.app.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var bleManager: BleManager
+    private lateinit var sppManager: BluetoothSppManager
 
     private val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         arrayOf(
@@ -47,7 +46,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        bleManager = BleManager(this)
+        sppManager = BluetoothSppManager(this)
 
         binding.btnConnect.setOnClickListener {
             if (hasPermissions()) {
@@ -58,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnAbout.setOnClickListener {
-            Toast.makeText(this, "DL24 BLE Controller v1.0\nAtorch DL24P Electronic Load", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "DL24 Controller v1.0\nAtorch DL24P Electronic Load", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -69,7 +68,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startScanActivity() {
-        if (!bleManager.isBluetoothEnabled()) {
+        if (!sppManager.isBluetoothEnabled()) {
             Toast.makeText(this, "Please enable Bluetooth", Toast.LENGTH_SHORT).show()
             return
         }
