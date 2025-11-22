@@ -66,8 +66,8 @@ class LowLevelSerPort:
         print('PORTCONNERR:',e)
         sleep(1)
     if not self.connected:
-      print('ERRPORTCONN: cannot connect to',self.serport,'- too many retries. Aborting.',file=stdlog)
-      exit(12)
+      print('ERRPORTCONN: cannot connect to',self.serport,'- too many retries.',file=stdlog)
+      raise ConnectionError(f'Cannot connect to {self.serport}')
     if self.verbconn: print('SERPORT:connected',file=stdlog)
     return None
 
@@ -138,8 +138,8 @@ class LowLevelTcpPort:
         print('SOCKCONNERR:',e)
         sleep(min(0.5+t,5)) # increase retries delay, max. 5s
     if not self.connected:
-      print('ERRSOCKCONN: cannot connect to',self.ipaddr,':',self.ipport,'- too many retries. Aborting.',file=stdlog)
-      exit(12)
+      print('ERRSOCKCONN: cannot connect to',self.ipaddr,':',self.ipport,'- too many retries.',file=stdlog)
+      raise ConnectionError(f'Cannot connect to {self.ipaddr}:{self.ipport}')
     self.sock.setblocking(False) # nonblocking
     if self.verbconn: print('SOCK:connected',file=stdlog)
     self.time_lastread=monotonic()
@@ -1244,7 +1244,10 @@ if __name__=="__main__":
   #if pload.isparm('VERBPORT'): pload.instr.comm.verbconn=True;pload.instr.comm.verbport=True
 
   #if pload.instr.verblnk: print('opening port',file=stdlog)
-  pload.instr.connect()
+  try:
+    pload.instr.connect()
+  except ConnectionError:
+    exit(12)
   if pload.isparm('WAIT') or ('waitcomm' in pload.conf and pload.conf['waitcomm']=='1'):
     if pload.verbrun:
       print('waiting for incoming data',file=stdlog)

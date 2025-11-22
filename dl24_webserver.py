@@ -82,11 +82,17 @@ def init_device():
         # Check if we have connection settings
         if not pload.conf.get('serport') and not pload.conf.get('host'):
             print('No serial port or host configured', file=sys.stderr)
+            print('Please configure connection in the web interface', file=sys.stderr)
             return False
 
-        # Initialize port
-        pload.initport()
-        pload.instr.connect()
+        # Initialize port - catch errors gracefully
+        try:
+            pload.initport()
+            pload.instr.connect()
+        except Exception as port_error:
+            print(f'Could not connect to port: {port_error}', file=sys.stderr)
+            connection_health['last_error'] = str(port_error)
+            return False
 
         connection_health['is_connected'] = True
         connection_health['last_error'] = None
